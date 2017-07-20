@@ -1,0 +1,81 @@
+{
+   "processed" : {
+      "samples" : [
+         "DRAP_oases",
+         "oases",
+         "DRAP_trinity",
+         "trinity"
+      ],
+      "cmd" : "/work/fescudie/drap/branches/runDrap/runAssessment --assemblies DRAP_oases.fa oases.fa DRAP_trinity.fa trinity.fa --r1 /work/sigenae/Christophe/DRAP/SRR1048059_1.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048060_1.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048061_1.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048062_1.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048063_1.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR10480XX_1.trim.fq.gz --r2 /work/sigenae/Christophe/DRAP/SRR1048059_2.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048060_2.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048061_2.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048062_2.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR1048063_2.trim.fq.gz /work/sigenae/Christophe/DRAP/SRR10480XX_2.trim.fq.gz -o assessment --protein-db /work/sigenae/Christophe/DRAP/Danio_rerio.GRCz10.pep.longest_prot_per_gene.fa --scoring --nb-cpus 10 --mem 200G"
+   },
+   "analysis" : [
+      {
+         "steps" : [
+            {
+               "metrics" : {
+                  "alnProtLog" : {
+                     "DRAP_trinity" : 34,
+                     "oases" : 33,
+                     "DRAP_oases" : 32,
+                     "trinity" : 35
+                  },
+                  "correctVariationLog" : {
+                     "DRAP_trinity" : 23,
+                     "oases" : 20,
+                     "DRAP_oases" : 17,
+                     "trinity" : 26
+                  },
+                  "flagstatLog" : {
+                     "DRAP_trinity" : 22,
+                     "oases" : 19,
+                     "DRAP_oases" : 16,
+                     "trinity" : 25
+                  },
+                  "splitORFLog" : {
+                     "DRAP_trinity" : 14,
+                     "oases" : 13,
+                     "DRAP_oases" : 12,
+                     "trinity" : 15
+                  },
+                  "inclusion" : {
+                     "DRAP_trinity" : 6,
+                     "oases" : 5,
+                     "DRAP_oases" : 4,
+                     "trinity" : 7
+                  },
+                  "fastaAssembly" : {
+                     "DRAP_trinity" : 2,
+                     "oases" : 1,
+                     "DRAP_oases" : 0,
+                     "trinity" : 3
+                  },
+                  "scoring" : {
+                     "DRAP_trinity" : 30,
+                     "oases" : 29,
+                     "DRAP_oases" : 28,
+                     "trinity" : 31
+                  },
+                  "orientationLog" : {
+                     "DRAP_trinity" : 24,
+                     "oases" : 21,
+                     "DRAP_oases" : 18,
+                     "trinity" : 27
+                  },
+                  "chimera" : {
+                     "DRAP_trinity" : 10,
+                     "oases" : 9,
+                     "DRAP_oases" : 8,
+                     "trinity" : 11
+                  }
+               },
+               "title" : "Default",
+               "id" : 0,
+               "description" : ""
+            }
+         ],
+         "title" : "Assembly quality",
+         "id" : 0,
+         "description" : "Metrics on assembly quality."
+      }
+   ]
+}

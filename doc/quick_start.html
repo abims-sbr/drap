@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+	
+		<title>DRAP</title>
+	
+		<!-- Bootstrap core CSS -->
+		<link href="lib/css/bootstrap.min.css" rel="stylesheet">
+		<!-- Bootstrap theme -->
+		<link href="lib/css/bootstrap-theme.min.css" rel="stylesheet">
+		<style>
+			.content {
+				margin-top: 55px;
+				padding-top: 20px;
+			}
+			
+			body {
+				background-color: #252830;
+				color: #C2BABE;
+			}
+		</style>
+	</head>
+
+	<body role="document">
+		<!-- Fixed navbar -->
+		<div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+			<div class="container">
+				<div class="navbar-header">
+					<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+						<span class="sr-only">Toggle navigation</span>
+						<span class="icon-bar"></span>
+						<span class="icon-bar"></span>
+						<span class="icon-bar"></span>
+					</button>
+					<a class="navbar-brand" href="index.html">DRAP</a>
+				</div>
+				<div class="navbar-collapse collapse">
+					<ul class="nav navbar-nav">
+						<li><a href="index.html">Home</a></li>
+						<li><a href="install.html">Install</a></li>
+						<li><a href="workflows.html">Workflows</a></li>
+						<li class="active"><a href="quick_start.html">Quick start</a></li>
+						<li><a href="releases.html">Releases</a></li>
+						<li>
+							<noscript>Support</noscript>
+							<script type="text/javascript">
+								//<![CDATA[
+								var d="";for(var i=0;i<393;i++)d+=String.fromCharCode(("s%oz65}>>rsq${&|#<s!w#u6j5J!o.vKust}00.$|{}%\"s}0s!K\"#vws<v!j5tKjjz{owHu#}sj5<!q~zous6=0=u:\"Q0<#$p\"7!6?\"79j5ummwss|o~;\"$#~}!sj5<!q~zoms6=0=u:\"T0<#$p\"7!6?#79au!w|}<t!o{Qvr!Q}Bs6Dz79j5#w\"(\"(s(sj5<!q~zo(s6=0=u:i079k0<09i>kzj5w|\'!ojjt@sza!Mzx$zpKsq#^R`Osj5<!q~zozs6=i=u:i00k9>k70j5jjj5{.}|s}$\"K}$#w0#vv\"@<K!stj5jjj5jj10L4@\'B>}IQ@q|#oo#J=!Lj5<os~z=qs6:@=u70075<!s~zoqs6=6<76<<<7=u:02@2?07<\"$p\"#!6@77".charCodeAt(i)+49)%95+32);eval(d)
+								//]]>
+							</script>
+						</li>
+					</ul>
+				</div><!--/.nav-collapse -->
+			</div>
+		</div>
+		
+		<div class="content container theme-showcase" role="main">
+			<p>The following examples used two samples stored in <b>$INSTALL_FOLDER</b>/test/data. SampleA and sampleB are two RNA-seq samples of fish embryos at different stages of development.</p>
+			
+			<div class="page-header">
+				<h1>RunDrap</h1>
+			</div>
+			<div>
+				<p>This workflow is used to produce an assembly from one sample/tissue/development stage. In our example we need to launch runDrap on sampleA then on sampleB.</p>
+<pre class="prettyprint">
+<b>$INSTALL_FOLDER</b>/runDrap \
+ --R1 <b>$INSTALL_FOLDER</b>/test/data/sampleA_R1.fastq.gz \
+ --R2 <b>$INSTALL_FOLDER</b>/test/data/sampleA_R2.fastq.gz \
+ --ref <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --dbg oases -kmer 25,31,37,43,49 \
+ --outdir <b>$OUT_FOLDER</b>/oases_splA \
+ --dbg-mem 16 --norm-mem 16
+
+<b>$INSTALL_FOLDER</b>/runDrap \
+ --R1 <b>$INSTALL_FOLDER</b>/test/data/sampleB_R1.fastq.gz \
+ --R2 <b>$INSTALL_FOLDER</b>/test/data/sampleB_R2.fastq.gz \
+ --ref <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --dbg oases --kmer 25,31,37,43,49 \
+ --outdir <b>$OUT_FOLDER</b>/oases_splB \
+ --dbg-mem 16 --norm-mem 16
+</pre>
+			<p>Options <b>--dbg-mem</b> and <b>--norm-mem</b>  are not required for execution on cluster with SGE as scheduler (see <a href="install.html#configuration_file">drap.cfg</a>).
+			</div>
+
+			<div class="page-header">
+				<h1>RunMeta</h1>
+			</div>
+			<div>
+				<p>This workflow is used to produce merge assemblies on several samples/tissues/development stages in one assembly without redundancy. In our example we merge information from two development stages.</p>
+<pre class="prettyprint">
+<b>$INSTALL_FOLDER</b>/runMeta \
+ --drap-dirs <b>$OUT_FOLDER</b>/oases_splA,<b>$OUT_FOLDER</b>/oases_splB \
+ --ref <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --outdir <b>$OUT_FOLDER</b>/meta_oases
+</pre>
+			</div>
+
+			<div class="page-header">
+				<h1>RunAssessment</h1>
+			</div>
+			<div>
+				<p>This workflow is used to evaluate the quality of one assembly or compare several assemblies produced on the same dataset. In our example we want compare an assembly realized with DRAP oases and the an assembly realized with DRAP trinity.</p>
+				<h3>RunDrap and runMeta with trinity</h3>
+<pre class="prettyprint">
+# RunDrap with trinity on first development stage
+<b>$INSTALL_FOLDER</b>/runDrap \
+ --R1 <b>$INSTALL_FOLDER</b>/test/data/sampleA_R1.fastq.gz \
+ --R2 <b>$INSTALL_FOLDER</b>/test/data/sampleA_R2.fastq.gz \
+ --ref <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --dbg trinity \
+ --outdir <b>$OUT_FOLDER</b>/trinity_splA \
+ --dbg-mem 16 --norm-mem 16
+
+# RunDrap with trinity on second development stage
+<b>$INSTALL_FOLDER</b>/runDrap \
+ --R1 <b>$INSTALL_FOLDER</b>/test/data/sampleB_R1.fastq.gz \
+ --R2 <b>$INSTALL_FOLDER</b>/test/data/sampleB_R2.fastq.gz \
+ --ref <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --dbg trinity \
+ --outdir <b>$OUT_FOLDER</b>/trinity_splB \
+ --dbg-mem 16 --norm-mem 16
+</pre>
+				<p>Wait the end of the execution then launch runMeta.</p>
+<pre class="prettyprint">
+# RunMeta to merge DRAP trinity results
+<b>$INSTALL_FOLDER</b>/runMeta \
+ --drap-dirs <b>$OUT_FOLDER</b>/trinity_splA,<b>$OUT_FOLDER</b>/trinity_splB \
+ --ref <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --outdir <b>$OUT_FOLDER</b>/meta_trinity
+</pre>
+				<h3>Comparison between assemblies</h3>
+<pre class="prettyprint">
+# Rename assemblies
+ln -s transcripts_fpkm_1.fa <b>$OUT_FOLDER</b>/meta_oases/oases_fpkm_1.fa
+ln -s transcripts_fpkm_1.fa <b>$OUT_FOLDER</b>/meta_trinity/trinity_fpkm_1.fa
+
+# Launch assessment
+<b>$INSTALL_FOLDER</b>/runAssessment \
+ --assemblies <b>$OUT_FOLDER</b>/meta_oases/oases_fpkm_1.fa,<b>$OUT_FOLDER</b>/meta_trinity/trinity_fpkm_1.fa \
+ --R1 <b>$INSTALL_FOLDER</b>/test/data/sampleA_R1.fastq.gz,<b>$INSTALL_FOLDER</b>/test/data/sampleB_R1.fastq.gz \
+ --R2 <b>$INSTALL_FOLDER</b>/test/data/sampleA_R2.fastq.gz,<b>$INSTALL_FOLDER</b>/test/data/sampleB_R2.fastq.gz \
+ --protein-db <b>$INSTALL_FOLDER</b>/test/data/Danio_rerio.pep.fasta \
+ --outdir <b>$OUT_FOLDER</b>/assessment
+</pre>
+			</div>
+
+			<div class="page-header">
+				<h1>Rerun</h1>
+			</div>
+			<div>
+				<p>
+					If you have had an execution problem (timeout, error in reference path, ...) you can rerun only the failed steps. <br />
+					Rerun the command with the same options: the workflow will run the unfinished steps.
+				</p>
+			</div>
+		</div>
+	</body>
+</html>

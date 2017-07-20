@@ -1,0 +1,14 @@
+{
+   "nb_seq" : 18238,
+   "n50" : 598,
+   "length_distribution" : {
+      "lower_quartile" : 239,
+      "upper_quartile" : 526,
+      "min" : 126,
+      "max" : 8123,
+      "median" : 326,
+      "mean" : 500.4,
+      "sum" : 9126353
+   },
+   "l50" : 3741
+}

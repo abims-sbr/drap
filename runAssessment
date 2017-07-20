@@ -1,0 +1,831 @@
+#!/usr/bin/perl
+# $Id$
+
+=pod
+
+=head1 NAME
+
+ runAssessment
+
+=head1 SYNOPSIS
+
+ runAssessment \
+   --outdir OUTPUT_DIR \
+   --assemblies FASTA_ASSEMBLY_1,[,...,FASTA_ASSEMBLY_N] \
+   --R1 R1_FILE[,...,R1_FILE_n] \
+   [--R2 R2_FILE[,...,R2_FILE_n]] \
+   [--protein-db FASTA_REF] \
+   [--no-busco] \
+   [--busco-lineage] \
+   [--no-rate] \
+   [--cfg-file CONFIG_FILE] \
+   [--local]
+   [--help]
+
+=head1 DESCRIPTION
+
+ Process metrics on compacity of assembly (nb contigs, lengths, nb multi-ORFs, 
+ nb multi-proteins, nb inclusions) and on representativeness of assembly 
+ (re-alignment, proteins coverage, consensus bias). 
+ These metrics can be processed on several assembly produced from the same 
+ dataset (R1/R2) with different methods and/or different parameters. This 
+ usage allows easy assembly comparison.
+ The main output is the HTML report produced in report/DRAP_assessment.html.
+ 
+=head1 OPTIONS
+
+=over 8
+
+=item B<-a, --assemblies>
+
+The assembly step results in FASTA format, comma-separated.
+
+=item B<--R1>
+
+The R1 file(s) previously used in the assembler, comma-separated. It can be in FASTA or FASTQ
+format.
+
+=item B<--R2>
+
+The R2 file(s) previously used in the assembler, comma-separated. It can be in FASTA or FASTQ
+format.
+
+=item B<-o, --outdir>
+
+The path for the output directory. The last folder will be created by the
+workflow.
+If you use an already existing output directory the workflow will process only
+the missing results (this is used in rerun after error).
+
+=item B<-p, --protein-db>
+
+The fasta of known proteins used to count the number of contigs with
+several proteins and the number of proteins in assembly.
+
+=item B<-b, --no-busco>
+
+Without this option BUSCO (http://busco.ezlab.org/) is used to provide measures 
+to assess the transcriptome completeness based on gene content from near-universal
+single-copy orthologs.
+
+=item B<-l, --busco-lineage>
+
+Name of the BUSCO lineage data to be used. Valid options: metazoa_odb9, eukaryota_odb9, 
+arthropoda_odb9, vertebrata_odb9, fungi_odb9, and bacteria_odb9 (default: vertebrata_odb9).
+Lineage dataset must be found inside busco directory.
+
+=item B<-s, --no-rate>
+
+Without this option TransRate (http://hibberdlab.com/transrate/) is used to 
+produce a score on assembly from paired-end data. The score is calculated as 
+the geometric mean of all contig scores multiplied by the proportion of input 
+reads that provide positive support for the assembly.
+
+=item B<--cfg-file>
+
+Run worflow with a user DRAP configuration file.
+This file must keep the syntax of the default configuration file.
+The default configuration file is DRAP_DIR/cfg/drap.cfg.
+
+=item B<--local>
+
+Run locally (no qsub).
+
+=item B<-h, --help>
+
+Print help.
+
+=back
+
+=head1 VERSION
+
+1.91
+
+=head1 AUTHOR
+
+ Frédéric Escudié - Cedric Cabau - INRA Toulouse - sigenae-support@listes.inra.fr
+
+=head1 COPYRIGHT
+
+ 2016 INRA
+
+=head1 LICENSE
+
+ GNU GPLv3
+
+=cut
+
+use strict ;
+use warnings ;
+use Pod::Usage ;
+use Getopt::Long ;
+use File::Spec ;
+use File::Basename ;
+use File::Path 'make_path' ;
+use FindBin;
+use lib("$FindBin::RealBin/bin") ;
+use ConfigFile ;
+use Report ;
+use Cmd ;
+use CmdSet ;
+use Workflow ;
+use JSON ;
+use AsmUtils ;
+
+
+MAIN:
+{
+	my $opt = {
+		'cmd'           => $0." ".join(" ", @ARGV),
+		'assemblies'    => undef,
+		'R1'	        => undef,
+		'R2'	        => undef,
+		'protein_db'    => undef,
+		'no_busco'      => 0,
+		'busco_lineage' => "vertebrata_odb9",
+		'out_dir'       => "",
+		'binpath'       => $FindBin::RealBin."/bin",
+		'no_rate'       => 0,
+		'cfgfile'       => undef
+	};
+	
+	# Manage parameters
+	my $local = undef ;
+	my $help = 0 ;
+	my @assembly_param = ();
+	my @R1_param = ();
+	my @R2_param = ();
+	GetOptions(
+		'a|assemblies=s{1,}' => \@assembly_param,
+		'R1=s{1,}'           => \@R1_param,
+		'R2=s{,}'            => \@R2_param,
+		'o|outdir=s'         => \$$opt{out_dir},
+		'p|protein-db=s'     => \$$opt{protein_db},
+		'b|no-busco'         => \$$opt{no_busco},
+		'l|busco-lineage=s'  => \$$opt{busco_lineage},
+		's|no-rate'          => \$$opt{no_rate},
+		'cfg-file=s'         => \$$opt{cfg_file},
+		'local'              => \$local,
+		'h|help'             => \$help
+	);
+	pod2usage(
+		-verbose => 99,
+		-sections => "VERSION|SYNOPSIS|DESCRIPTION|OPTIONS"
+	) if ($help) ;
+	our $config_file;
+	if( defined($opt->{cfg_file}) ){
+		pod2usage("$0: '".$opt->{cfg_file}."' doesn't exist.") if !(-f $opt->{cfg_file}) ;
+		pod2usage("$0: '".$opt->{cfg_file}."' is not readable.") if !(-r $opt->{cfg_file}) ;	
+		$config_file = File::Spec->rel2abs($opt->{cfg_file});
+	} else {
+		$config_file = $FindBin::RealBin."/cfg/drap.cfg";
+	}
+	set_env_variables( $config_file, $opt );
+	$opt->{memory} = $opt->{env}->{runAssessment_ram}.'G' ;
+	if( !$opt->{no_busco} ){
+		$opt->{busco_lineage} = $opt->{env}->{busco_lineage_directory}."/".$opt->{busco_lineage};
+		pod2usage("$0: No such busco lineage '".$opt->{busco_lineage}."'.") if !(-f $opt->{busco_lineage}."/ancestral") ;
+		pod2usage("$0: '".$opt->{busco_lineage}."' is not readable.") if !(-r $opt->{busco_lineage}."/ancestral") ;
+	}
+	
+	## allowing comma-separated lists of values as well as multiple occurrences of the options
+	@assembly_param = split(/,/, join(',', @assembly_param));
+	$opt->{assemblies} = \@assembly_param ;
+	pod2usage("$0: '-assemblies' is required.") if( scalar(@{$opt->{assemblies}}) == 0 );
+	my $basenames = [];
+	for( my $assembly_idx = 0 ; $assembly_idx < scalar(@assembly_param) ; $assembly_idx++ ){
+		pod2usage("$0: No such fasta file '".$opt->{assemblies}[$assembly_idx]."'.") if !(-f $opt->{assemblies}[$assembly_idx]) ;
+		pod2usage("$0: '".$opt->{assemblies}[$assembly_idx]."' is not readable.") if !(-r $opt->{assemblies}[$assembly_idx]) ;
+		pod2usage("$0: Please provide assembly files with unique basenames.") if (find_in(basename($opt->{assemblies}[$assembly_idx]), $basenames)) ;
+		push(@$basenames, basename($opt->{assemblies}[$assembly_idx]));
+		$opt->{assemblies}[$assembly_idx] = File::Spec->rel2abs($opt->{assemblies}[$assembly_idx]) ;
+	}
+	@R1_param = split(/,/, join(',', @R1_param));
+	$opt->{R1} = \@R1_param ;
+	if( scalar(@R1_param) == 0 ){
+		pod2usage( "$0: '-R1' is required." );
+	} else {
+		for( my $R1_idx = 0 ; $R1_idx < scalar(@R1_param) ; $R1_idx++ ){
+			pod2usage("$0: No such file '".$opt->{R1}[$R1_idx]."'.") if !(-f $opt->{R1}[$R1_idx]) ;
+			pod2usage("$0: '".$opt->{R1}[$R1_idx]."' is not readable.") if !(-r $opt->{R1}[$R1_idx]) ;
+			$opt->{R1}[$R1_idx] = File::Spec->rel2abs($opt->{R1}[$R1_idx]) ;
+		}
+	}
+	@R2_param = split(/,/, join(',', @R2_param));
+	$opt->{R2} = \@R2_param ;
+	if( scalar(@R2_param) > 0 ){
+		for( my $R2_idx = 0 ; $R2_idx < scalar(@R2_param) ; $R2_idx++ ){
+			pod2usage("$0: No such file '".$R2_param[$R2_idx]."'.") if !(-f $R2_param[$R2_idx]) ;
+			pod2usage("$0: '".$R2_param[$R2_idx]."' is not readable.") if !(-r $R2_param[$R2_idx]) ;
+			$opt->{R2}[$R2_idx] = File::Spec->rel2abs($R2_param[$R2_idx]) ;
+		}
+	}
+	if( defined($opt->{protein_db}) ){
+		pod2usage("$0: No such fasta file '".$opt->{protein_db}."'.") if !(-f $opt->{protein_db}) ;
+		pod2usage("$0: '".$opt->{protein_db}."' is not readable.") if !(-r $opt->{protein_db}) ;	
+		$opt->{protein_db} = File::Spec->rel2abs($opt->{protein_db});
+	}
+	if( scalar(@R2_param) == 0 ){
+		$opt->{no_rate} = 1 ;
+	}
+	if( !$opt->{no_rate} ){
+		if( to_size_unit($opt->{memory}, "Gb") < 40 ){
+			die "Scoring needs at least 40Gb of memory." ;
+		}
+		if( scalar(@R1_param) != scalar(@R2_param) ){
+			die "All your reads must be paired to use the scoring." ;
+		}
+	}
+	$opt->{out_dir} = File::Spec->rel2abs($opt->{out_dir});
+	$opt->{binpath} = File::Spec->rel2abs($opt->{binpath});
+
+	# Set softwares path
+	set_extended_path($config_file);
+	$ENV{PATH} = $FindBin::Bin."/bin:$ENV{PATH}" ;
+
+	# Set local mode
+	if ( defined($local) ){
+		$opt->{env}->{scheduler}->{type} = 'local';
+	}
+	if( $opt->{env}->{scheduler}->{type} eq 'local' ){
+		$opt->{local_param} = ' --local' ;
+	} else {
+		$opt->{local_param} = '' ;
+	}
+	# Process
+	process( $opt );
+}
+
+
+=head2 procedure process
+
+ Usage        : process( $opt )
+ Function     : Launch analysis on assemblies.
+ Args         : [hash] the assessment software options.
+
+=cut
+sub process {
+	my ( $opt ) = @_ ;
+
+	# Create output directory
+	unless ($opt->{restart}) {
+		make_path($opt->{out_dir});
+	}
+	
+	# Init report
+	my $orig_report_folder = $opt->{binpath}."/../report" ;
+	my $report_folder = $opt->{out_dir}."/report" ;
+	my $report_db_folder = $report_folder."/database" ;
+	my @samples = ();
+	foreach my $current_assembly (@{$opt->{assemblies}}){
+		my ($filename, $dir, $ext) = fileparse( $current_assembly, qr/\.[^.]*/ );
+		push( @samples, $filename );
+	}
+	my $report = new Report({
+		'cmd' => $opt->{cmd},
+		'samples' => \@samples
+	});
+	my $asm_quality_analysis = $report->add_analysis( 'Assembly quality', 'Metrics on assembly quality.' );
+	my $asm_quality_report = $asm_quality_analysis->add_step( 'Default' );
+	
+	# Set analysis
+	my $workflow = new Workflow( $opt->{binpath}."/submit.pl", undef, $opt->{out_dir} );
+	$workflow->add_component( get_sequences_analysis($opt, $asm_quality_report, $report_db_folder), 'assemblyMetrics', $opt->{env} );
+	$workflow->add_component( get_inclusion_analysis($opt, $asm_quality_report, $report_db_folder), 'inclusion', $opt->{env} );
+	$workflow->add_component( get_chimeraSelf_analysis($opt, $asm_quality_report, $report_db_folder), 'chimera', $opt->{env} );
+	$workflow->add_component( get_ORF_analysis($opt, $asm_quality_report, $report_db_folder), 'orf', $opt->{env} );
+	if( scalar(@{$opt->{R1}}) > 0 ){
+		$workflow->add_component( get_mapping_analysis($opt, $asm_quality_report, $report_db_folder), 'mapping', $opt->{env} );
+	}
+	if( !$opt->{no_rate} ){
+		$workflow->add_component( get_scoring_analysis($opt, $asm_quality_report, $report_db_folder), 'scoring', $opt->{env} );
+	}
+	if( !$opt->{no_busco} ){
+		$workflow->add_component( get_gene_set_completeness_analysis($opt, $asm_quality_report, $report_db_folder), 'busco', $opt->{env} );
+	}
+	if( defined($opt->{protein_db}) ){
+		$workflow->add_component( get_prot_analysis($opt, $asm_quality_report, $report_db_folder), 'prot', $opt->{env} );
+	}
+	print "\n" ;
+	
+	# Create report
+	create_report( $orig_report_folder, 'DRAP_report.html', $opt->{out_dir}, $report_db_folder, $report );
+	
+	# Launch analysis
+	$workflow->submit() ;
+}
+
+
+=head2 function get_sequences_analysis
+
+ Usage        : $cmd_set = get_sequences_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on number and length of contigs.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_sequences_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	
+	my @assemblies_cmds = ();
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+		
+		# Report
+		my $assemblyMetrics_metrics_path = "##STEP_DIR##/".$filename."_metrics.tsv" ;
+		my $assemblyMetrics_json = $report_db_folder."/".($report->get_or_create_metrics_filename('fastaAssembly', $filename));
+		push( @curr_assembly_cmds,
+			(
+				new Cmd(sprintf("%s/fastaAssemblyMetrics.pl --input %s > %s", $opt->{binpath}, $assembly, $assemblyMetrics_metrics_path)),
+				new Cmd(sprintf("%s/fastaMetrics2json.pl %s > %s", $opt->{binpath}, $assemblyMetrics_metrics_path, $assemblyMetrics_json)),
+				new Cmd('\rm '.$assemblyMetrics_metrics_path)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "assemblyMetrics-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local')) );
+	}
+
+	return(	new CmdSet(\@assemblies_cmds, "parallel", "assemblyMetrics", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );
+}
+
+
+=head2 function get_inclusion_analysis
+
+ Usage        : $cmd_set = get_inclusion_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on number contigs included in an
+                other.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_inclusion_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	
+	my @assemblies_cmds = ();
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+	
+		# Cd-hit
+		my $inclusion_log_path = "##STEP_DIR##/".$filename."_log.txt" ;
+		my $inclusion_out_path = "##STEP_DIR##/".$filename."_clusters.fasta" ;
+		push( @curr_assembly_cmds, 
+			new Cmd(
+				sprintf(
+					"cd-hit-est -i %s -o %s -M 0 -d 0 -c 0.98 -T ".$opt->{env}->{n_cpu}." > %s",
+					$assembly, $inclusion_out_path, $inclusion_log_path
+				),
+				$opt->{env}->{n_cpu}
+			)
+		);
+		
+		# Report
+		my $inclusion_metrics_path = "##STEP_DIR##/".$filename."_metrics.txt" ;
+		my $inclusion_json = $report_db_folder."/".($report->get_or_create_metrics_filename('inclusion', $filename));
+		push( @curr_assembly_cmds,
+			(
+				new Cmd( sprintf($opt->{binpath}."/fastaAssemblyMetrics.pl --input %s > %s", $inclusion_out_path, $inclusion_metrics_path) ),
+				new Cmd( sprintf($opt->{binpath}."/fastaMetrics2json.pl %s > %s", $inclusion_metrics_path, $inclusion_json) ),
+				new Cmd( '\rm '.$inclusion_metrics_path )
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "inclusion-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local')) );
+	}
+	
+	return( new CmdSet(\@assemblies_cmds, "parallel", "inclusion", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );	
+}
+
+
+=head2 function get_chimeraSelf_analysis
+
+ Usage        : $cmd_set = get_chimeraSelf_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on large internal repeats.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_chimeraSelf_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	my @assemblies_cmds = ();
+	
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+	
+		# ChimeraFilter
+		my $chimera_log_path = "##STEP_DIR##/".$filename."_log.txt" ;
+		my $chimera_out_path = "##STEP_DIR##/".$filename."_non_chimera.fasta" ;
+		push( @curr_assembly_cmds, 
+			new Cmd(
+				sprintf(
+					"cd ##STEP_DIR## ; ".$opt->{binpath}."/submitSelfChimera.pl -i %s -o %s -l %s --max-sub 70%s",
+					$assembly, $chimera_out_path, $chimera_log_path, $opt->{local_param}
+				)
+			)
+		);
+
+		# Report
+		my $chimera_json = $report_db_folder."/".($report->get_or_create_metrics_filename('chimera', $filename));
+		push( @curr_assembly_cmds, 
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/chimeraMetrics2json.pl %s > %s",
+					$chimera_log_path, $chimera_json
+				)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "chimera-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local'), 'is') );
+	}
+	
+	return( new CmdSet(\@assemblies_cmds, "parallel", "chimera", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );
+}
+
+
+=head2 function get_ORF_analysis
+
+ Usage        : $cmd_set = get_ORF_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on number of ORF by contig.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_ORF_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	my @assemblies_cmds = ();
+	
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+
+		# Transdecoder
+		my $transdecoder_out_path = "##STEP_DIR##/".$filename.$ext.".transdecoder.bed" ;
+		push( @curr_assembly_cmds,
+			(
+				new Cmd( "cd ##STEP_DIR##" ),
+				new Cmd( "TransDecoder.LongOrfs -t ".$assembly ),
+				new Cmd( "TransDecoder.Predict -t ".$assembly ),
+				new Cmd( "cd -" )
+			)
+		);
+		
+		# Transdecoder parsing
+		my $orf_log_path = "##STEP_DIR##/".$filename."_cut_log.txt" ;
+		my $orf_length_path = "##STEP_DIR##/".$filename."_cut_log.tsv" ;
+		my $orf_out_path = "##STEP_DIR##/".$filename."_cut.fa" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/transdecoder_bed_to_false_fusion_cutter.pl -f %s -b %s --log %s --orf-length %s --keep > %s",
+					$assembly, $transdecoder_out_path, $orf_log_path, $orf_length_path, $orf_out_path
+				)
+			)
+		);
+		
+		# Report
+		my $orf_json = $report_db_folder."/".($report->get_or_create_metrics_filename('splitORFLog', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/transdecoderMetrics2json.pl %s > %s", 
+					$orf_log_path, $orf_json
+				)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "orf-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local')) );
+	}
+
+	return( new CmdSet(\@assemblies_cmds, "parallel", "orf", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );
+}
+
+
+=head2 function get_mapping_analysis
+
+ Usage        : $cmd_set = get_mapping_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on re-mapping and invalid 
+                consensus.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_mapping_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	my @assemblies_cmds = ();
+	
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+		
+		# Alignment
+		my $mapping_out_path = "##STEP_DIR##/".$filename.".bam" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/bwa.pl --reference %s --R1 %s %s --bam %s -t %s --vmem %s --mem %s%s",
+					$assembly, join(" ", @{$opt->{R1}}), (scalar(@{$opt->{R2}}) > 0 ? "--R2 ".join(" ", @{$opt->{R2}}) : ""),
+					$mapping_out_path, $opt->{env}->{n_cpu}, $opt->{memory}, $opt->{memory},$opt->{local_param}
+				), $opt->{local_param} ? $opt->{env}->{n_cpu} : 1
+			)
+		);
+		
+		# Filter
+		my $filter_out_path = "##STEP_DIR##/".$filename."_filtered.bam" ;
+		push( @curr_assembly_cmds,
+			(
+				new Cmd(sprintf("samtools view -F 2304 -b %s > %s", $mapping_out_path, $filter_out_path)),
+				new Cmd('\rm '.$mapping_out_path)
+			)
+		);
+		
+		# Flagstat
+		my $flagstat_metrics_path = "##STEP_DIR##/".$filename."_flagstat.txt" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					"samtools flagstat %s > %s",
+					$filter_out_path, $flagstat_metrics_path
+				)
+			)
+		);
+		
+		# Report Flagstat
+		my $flagstat_json = $report_db_folder."/".($report->get_or_create_metrics_filename('flagstatLog', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/alignmentMetrics2json.pl %s > %s",
+					$flagstat_metrics_path, $flagstat_json
+				)
+			)
+		);
+
+		# Correct consensus
+		my $correctConsensus_out_path = "##STEP_DIR##/".$filename."_correct.fa" ;
+		my $correctConsensus_log_path = "##STEP_DIR##/".$filename."_correctLog.txt" ;
+		my $mpileup_out_path = "##STEP_DIR##/".$filename."_mpileup.tsv" ;
+		push( @curr_assembly_cmds,
+			(
+				new Cmd("samtools faidx ".$assembly),
+				new Cmd(
+					sprintf(
+						$opt->{binpath}."/submitSamCorrectVar.pl -f %s -b %s -o %s -l %s --max-sub 70%s",
+						$assembly, $filter_out_path, $correctConsensus_log_path, $correctConsensus_out_path, $opt->{local_param}
+					)
+				)
+			)
+		);
+		
+		# Report correct consensus
+		my $correctConsensus_json = $report_db_folder."/".($report->get_or_create_metrics_filename('correctVariationLog', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/samCorrectVarMetrics2json.pl %s > %s",
+					$correctConsensus_log_path, $correctConsensus_json
+				)
+			)
+		);
+		
+		# Mapping orientation
+		my $mapOrient_log_path = "##STEP_DIR##/".$filename."_orientationLog.txt" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/mapOrientMetrics.pl %s > %s",
+					$filter_out_path, $mapOrient_log_path
+				)
+			)
+		);
+		
+		# Report mapping orientation
+		my $mapOrient_json = $report_db_folder."/".($report->get_or_create_metrics_filename('orientationLog', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/mapOrientMetrics2json.pl %s > %s",
+					$mapOrient_log_path, $mapOrient_json
+				)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "mapping-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local')) );
+	}
+	
+	return( new CmdSet(\@assemblies_cmds, "parallel", "mapping", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );
+}
+
+
+=head2 function get_scoring_analysis
+
+ Usage        : $cmd_set = get_scoring_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on assembly scores.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_scoring_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	my @assemblies_cmds = ();
+	
+	# Number of CPUs management
+	my $nb_cpus_scoring = int(to_size_unit($opt->{memory}, "Gb")/20) ; # Salmon needs 20Gb by CPU
+	$nb_cpus_scoring = ($opt->{env}->{n_cpu} < $nb_cpus_scoring) ? $opt->{env}->{n_cpu} : $nb_cpus_scoring ;
+	$nb_cpus_scoring = ($nb_cpus_scoring < 2 ) ? 2 : $nb_cpus_scoring ; # Minimum number of threads in salmon: 2
+	
+	# Cmd
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+		
+		# Transrate
+		my $transrate_metrics_path = "##STEP_DIR##/".$filename."_transrate.txt" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					"transrate --assembly %s %s %s %s --output ##STEP_DIR##/%s --threads %s > %s",
+					$assembly, 
+					( scalar(@{$opt->{R2}}) > 0 ? "--left ".join(" ", @{$opt->{R1}}) : "" ), 
+					( scalar(@{$opt->{R2}}) > 0 ? "--right ".join(" ", @{$opt->{R2}}) : "" ), 
+					(defined($opt->{protein_db}) ? "--reference ".$opt->{protein_db} : ""),
+					$filename,
+					$nb_cpus_scoring,
+					$transrate_metrics_path
+				),
+				$nb_cpus_scoring, $opt->{memory}, $opt->{memory}
+			)
+		);
+		
+		# Report
+		my $scoring_json = $report_db_folder."/".($report->get_or_create_metrics_filename('scoring', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/transrateMetrics2json.pl %s > %s", 
+					$transrate_metrics_path, $scoring_json
+				)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "scoring-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local')) );
+	}
+	
+	return( new CmdSet(\@assemblies_cmds, "parallel", "scoring", SchedulerFactory->instantiate("##STEP_DIR##")) );
+}
+
+
+=head2 function get_prot_analysis
+
+ Usage        : $cmd_set = get_prot_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on number of proteins by contig.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_prot_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	my @assemblies_cmds = ();
+	
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+	
+		# Blat
+		my $blat_out_path = "##STEP_DIR##/".$filename.".blat.psl" ;
+		my $best_out_path = "##STEP_DIR##/".$filename.".blat.best.tsv" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/submitBlat.pl -query %s -target %s -output %s -best %s -max-sub 70 -vmem %s -mem %s%s%s",
+					$opt->{protein_db}, $assembly, $blat_out_path, $best_out_path, $opt->{memory}, $opt->{memory}, 
+					is_prot_fasta($opt->{protein_db}) ? " --params '-q=prot -t=dnax'" : '', $opt->{local_param}
+				)
+			)
+		);
+		
+		# Report
+		my $protein_json = $report_db_folder."/".($report->get_or_create_metrics_filename('alnProtLog', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/blat2json.pl %s > %s", 
+					$best_out_path, $protein_json
+				)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "prot-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local'), 'is') );
+	}
+
+	return( new CmdSet(\@assemblies_cmds, "parallel", "prot", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );
+}
+
+
+=head2 function get_gene_set_completeness_analysis
+
+ Usage        : $cmd_set = get_gene_set_completeness_analysis( $opt, $step_report, $report_db_folder )
+ Function     : Processes and reports metrics on gene set completeness.
+ Args         : [hash] the assessment software options.
+                [StepReport] the process step.
+                [str] path to the report database folder.
+
+=cut
+sub get_gene_set_completeness_analysis {
+	my ($opt, $report, $report_db_folder) = @_ ;
+	my @cmds = ();
+	my @assemblies_cmds = ();
+	
+	# Cmd
+	foreach my $assembly ( @{$opt->{assemblies}} ){
+		my ($filename, $dir, $ext) = fileparse($assembly, qr/\.[^.]*/);
+		my @curr_assembly_cmds = ();
+		
+		# Busco
+		my $busco_metrics_path = "##STEP_DIR##/run_".$filename."/short_summary_".$filename.".txt" ;
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					"cd ##STEP_DIR##; run_BUSCO.py -i %s -o %s -l %s -m tran -c %s; ln -s run_".$filename."/short_summary_".$filename.".txt",
+					$assembly, 
+					$filename,
+					$opt->{busco_lineage},
+					$opt->{env}->{n_cpu},
+				),
+				$opt->{env}->{n_cpu}, $opt->{memory}, $opt->{memory}
+			),
+		);
+		
+		# Report
+		my $geneCompleteness_json = $report_db_folder."/".($report->get_or_create_metrics_filename('geneCompletenessLog', $filename));
+		push( @curr_assembly_cmds,
+			new Cmd(
+				sprintf(
+					$opt->{binpath}."/buscoMetrics2json.pl %s > %s", 
+					$busco_metrics_path, $geneCompleteness_json
+				)
+			)
+		);
+		
+		push( @assemblies_cmds, new CmdSet(\@curr_assembly_cmds, "serial", "busco-spl".scalar(@assemblies_cmds), SchedulerFactory->instantiate("##STEP_DIR##", 'local')) );
+	}
+	push( @cmds, new CmdSet(\@assemblies_cmds, "parallel", "busco", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})));
+	push( @cmds, new Cmd( "generate_plot.py -wd ##STEP_DIR##"));
+
+	return( new CmdSet(\@cmds, "serial", "busco+plot", SchedulerFactory->instantiate("##STEP_DIR##", $opt->{env}->{scheduler}->{type})) );
+}
+
+=head2 function to_size_unit
+
+ Usage        : $new_mem = to_size_unit( $mem, $new_unit )
+ Function     : Changes the memory unit. 
+                Example: to_size_unit("1Tb", "Gb") => "1024"
+ Return       : [str] The memory with the new unit.
+ Args         : [str] The memory and the old unit.
+                [str] The new unit.
+
+=cut
+sub to_size_unit {
+	my ($mem, $new_unit) = @_ ;
+	my @unit_notation_long = ( "tb", "gb", "mb", "kb", "b" );
+	my @unit_notation_short = ( "t", "g", "m", "k", "b" );
+	my $new_mem = undef ;
+	
+	if( $mem =~ /^(\d+)(\D+)$/ ){
+		$new_mem = $1 ;
+		my $unit = lc($2);
+		die "Error in size management" unless (find_in($unit, \@unit_notation_long) || find_in($unit, \@unit_notation_short));
+		my $unit_rank = 0;
+		if( length($unit) == 2 ){
+			++$unit_rank until $unit_notation_long[$unit_rank] eq lc($unit);
+		} else {
+			++$unit_rank until $unit_notation_short[$unit_rank] eq lc($unit);
+		}
+		my $new_unit_rank = 0 ;
+		if( length($new_unit) == 2 ){
+			++$new_unit_rank until $unit_notation_long[$new_unit_rank] eq lc($new_unit);
+		} else {
+			++$new_unit_rank until $unit_notation_short[$new_unit_rank] eq lc($new_unit);
+		}
+		while( $unit_rank < $new_unit_rank ){
+			$new_mem = 1024*$new_mem ;
+			$unit_rank++ ;
+		}
+		while( $unit_rank > $new_unit_rank ){
+			$new_mem = $new_mem/1024 ;
+			$unit_rank-- ;
+		}	
+	} else {
+		die "Error in size management" ;
+	}
+	
+	return $new_mem ;
+}

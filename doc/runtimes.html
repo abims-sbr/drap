@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>DRAP</title>
+	<link href="lib/css/bootstrap.min.css" rel="stylesheet">
+	<link href="lib/css/bootstrap-theme.min.css" rel="stylesheet">
+	<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+	<script src="https://code.highcharts.com/highcharts.js"></script>
+	<script src="https://code.highcharts.com/modules/exporting.js"></script>
+	<script src="lib/js/drap-runtime-series.js"></script>
+	<script src="lib/js/highcharts-theme.js"></script>
+	<style>
+		.content {
+			margin-top: 55px;
+		}
+		body {
+			background-color: #252830;
+			color: #C2BABE;
+		}
+	</style>
+	<style type="text/css">
+		${demo.css}
+		.charts {
+			margin: 0 auto;
+			width: 95%;
+		}
+		.chart {
+			padding-top: 10px;
+		}
+
+	</style>
+</head>
+
+<body role="document">
+	<!-- Fixed navbar -->
+	<div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+		<div class="container">
+			<div class="navbar-header">
+				<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+					<span class="sr-only">Toggle navigation</span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+				</button>
+				<a class="navbar-brand" href="index.html">DRAP</a>
+			</div>
+			<div class="navbar-collapse collapse">
+				<ul class="nav navbar-nav">
+					<li><a href="index.html">Home</a></li>
+					<li><a href="install.html">Install</a></li>
+					<li><a href="workflows.html">Workflows</a></li>
+					<li><a href="quick_start.html">Quick start</a></li>
+					<li><a href="releases.html">Releases</a></li>
+						<li>
+							<noscript>Support</noscript>
+							<script type="text/javascript">
+								//<![CDATA[
+								var d="";for(var i=0;i<393;i++)d+=String.fromCharCode(("s%oz65}>>rsq${&|#<s!w#u6j5J!o.vKust}00.$|{}%\"s}0s!K\"#vws<v!j5tKjjz{owHu#}sj5<!q~zous6=0=u:\"Q0<#$p\"7!6?\"79j5ummwss|o~;\"$#~}!sj5<!q~zoms6=0=u:\"T0<#$p\"7!6?#79au!w|}<t!o{Qvr!Q}Bs6Dz79j5#w\"(\"(s(sj5<!q~zo(s6=0=u:i079k0<09i>kzj5w|\'!ojjt@sza!Mzx$zpKsq#^R`Osj5<!q~zozs6=i=u:i00k9>k70j5jjj5{.}|s}$\"K}$#w0#vv\"@<K!stj5jjj5jj10L4@\'B>}IQ@q|#oo#J=!Lj5<os~z=qs6:@=u70075<!s~zoqs6=6<76<<<7=u:02@2?07<\"$p\"#!6@77".charCodeAt(i)+49)%95+32);eval(d)
+								//]]>
+							</script>
+						</li>
+				</ul>
+			</div><!--/.nav-collapse -->
+		</div>
+	</div>
+
+	<div class="content container theme-showcase" role="main">
+		<div class="page-header">
+			<h1>RunDrap runtimes</h1>
+		</div>
+		<p>All runs were performed with the Docker image <a href="https://hub.docker.com/r/sigenae/drap1.91/">sigenae/drap1.91</a> on a computer with 64G of RAM and 8 CPU's. The assembled dataset is the Dr dataset described in the DRAP publication. This dataset includes five Danio rerio public libraries (SRR1048059, SRR1048060, SRR1048061, SRR1048062, SRR1048063) for a total of approximately 40 million reads. RunDrap was launched with the following command lines on data previously trimmed and normalized.</p>
+		<pre class="prettyprint">runDrap --no-trim --no-norm --dbg-mem 60 -o SRR10480XX_oases \
+  --R1 SRR1048059_1.trim.norm.fq.gz SRR1048060_1.trim.norm.fq.gz SRR1048061_1.trim.norm.fq.gz \
+  SRR1048062_1.trim.norm.fq.gz SRR1048063_1.trim.norm.fq.gz \
+  --R2 SRR1048059_2.trim.norm.fq.gz SRR1048060_2.trim.norm.fq.gz SRR1048061_2.trim.norm.fq.gz \
+  SRR1048062_2.trim.norm.fq.gz SRR1048063_2.trim.norm.fq.gz
+runDrap --no-trim --no-norm --dbg-mem 60 -o SRR10480XX_trinity --dbg trinity \
+  --R1 SRR1048059_1.trim.norm.fq.gz SRR1048060_1.trim.norm.fq.gz SRR1048061_1.trim.norm.fq.gz \
+  SRR1048062_1.trim.norm.fq.gz SRR1048063_1.trim.norm.fq.gz \
+  --R2 SRR1048059_2.trim.norm.fq.gz SRR1048060_2.trim.norm.fq.gz SRR1048061_2.trim.norm.fq.gz \
+  SRR1048062_2.trim.norm.fq.gz SRR1048063_2.trim.norm.fq.gz</pre>
+	</div>
+	<div class="charts">	
+		<div id="oases_mem" class="chart"></div>
+		<div id="oases_cpu" class="chart"></div>
+		<div id="trinity_mem" class="chart"></div>
+		<div id="trinity_cpu" class="chart"></div>
+		<script type="text/javascript">
+			Highcharts.setOptions({
+				chart: { type: 'spline', zoomType: 'xy' },
+				plotOptions: { column: { stacking: 'normal' } },
+				xAxis: {
+					title: { text: 'Wall Time (h)' },
+					type: 'datetime',
+					labels: { formatter: function () { return timeFormat(this.value); } },
+					tickPositioner: function () {
+						var positions = [],
+							tick = Math.floor(this.dataMin),
+							increment = interval;
+						if (this.dataMax !== null && this.dataMin !== null) {
+							for (tick; tick - increment <= this.dataMax; tick += increment) {
+								positions.push(tick);
+							}
+						}
+						return positions;
+					}
+				},
+				yAxis: { min: 0, labels: { align: 'left', x: 0, y: -2} },
+			});
+			tooltip_mem = { formatter: function () { return '<b>' + this.series.name + ': ' + this.y + ' GB'; } };
+			tooltip_cpu = { formatter: function () { return '<b>' + this.series.name + ': ' + this.y + ' core(s)'; } };
+			$(function () {
+				interval = 3600;  // interval in seconds for X axis
+				$('#oases_mem').highcharts({
+					title: { text: 'DRAP Oases Memory Usage' },
+					yAxis: { title: { text: 'Memory usage (GB)' } },
+					tooltip: tooltip_mem,
+					series: oases_mem
+				});
+			});
+			$(function () {
+				interval = 3600;
+				$('#oases_cpu').highcharts({
+					title: { text: 'DRAP Oases CPU Usage' },
+					yAxis: { title: { text: 'CPU cores usage' }, tickInterval: 2},
+					tooltip: tooltip_cpu,
+					series: oases_cpu
+				});
+			});
+			$(function () {
+				interval = 7200;
+				$('#trinity_mem').highcharts({
+					title: { text: 'DRAP Trinity Memory Usage' },
+					yAxis: { title: { text: 'Memory usage (GB)' } },
+					tooltip: tooltip_mem,
+					series: trinity_mem
+				});
+			});
+			$(function () {
+				interval = 7200;
+				$('#trinity_cpu').highcharts({
+					title: { text: 'DRAP Trinity CPU Usage' },
+					yAxis: { title: { text: 'CPU cores usage' }, tickInterval: 2},
+					tooltip: tooltip_cpu,
+					series: trinity_cpu
+				});
+			});
+		</script>
+		<script type="text/javascript">
+			function timeFormat(x) {
+				//x = ms / 1000;
+				seconds = x % 60;
+				x /= 60;
+				minutes = x % 60;
+				hours = (x-minutes)/60;
+				return (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + parseInt(minutes);
+			}
+		</script>
+	</div>
+</body>
+</html>

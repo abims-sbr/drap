@@ -1,0 +1,87 @@
+.bs-callout {
+    padding: 20px;
+    border-width: 1px 1px 1px 5px;
+    border-style: solid;
+    border-color: #EEE;
+    -moz-border-top-colors: none;
+    -moz-border-right-colors: none;
+    -moz-border-bottom-colors: none;
+    -moz-border-left-colors: none;
+    border-image: none;
+    border-radius: 3px;
+}
+
+#header {
+	position: relative;
+	color: #FFF;
+	text-shadow: 0px 1px 0px rgba(0, 0, 0, 0.1);
+	background-image: linear-gradient(to bottom, #337ab7 0px, #296292 100%);
+	padding-left:10px;
+	padding-top: 5px;
+	padding-bottom: 5px;
+}
+#header .title {
+	font-weight: 500;
+	line-height: 1.1;
+	font-size: 36px;
+}
+#header .subtitle {
+	font-weight: 50;
+	line-height: 1.1;
+	font-size: 15px;
+	font-style: italic;
+}
+
+.menu {
+    border-width: 1px 1px 1px 1px;
+    border-style: solid;
+    border-color: #EEE;
+    border-radius: 10px;
+}
+.menu-title {
+	padding-left: 20px;
+	padding-right: 20px;
+	font-weight: bold;
+	color: #FFF;
+	padding-top: 10px;
+	padding-bottom: 10px;
+	text-align: center;
+	text-shadow: 0px 1px 0px rgba(0, 0, 0, 0.1);
+	background-image: linear-gradient(to bottom, #337ab7 0px, #296292 100%);
+	border-top-left-radius: inherit;
+	border-top-right-radius: inherit;
+}
+.menu-body {
+	padding-left: 20px;
+	padding-right: 20px;
+}
+
+.graph {
+	width: 90%;
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: 10px;
+}
+.graph-nb {
+	color: #95959C;
+	font-style: italic;
+	text-align: center;
+}
+
+.analysis-details {
+	width: 90%;
+	margin-left: auto;
+	margin-right: auto;
+}
+.analysis-description {
+	width: 99%;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.clear {
+	clear: both;
+	height: 0px;
+	width: 100%;
+	float: none !important;
+}

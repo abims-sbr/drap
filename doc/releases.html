@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+	
+		<title>DRAP</title>
+	
+		<!-- Bootstrap core CSS -->
+		<link href="lib/css/bootstrap.min.css" rel="stylesheet">
+		<!-- Bootstrap theme -->
+		<link href="lib/css/bootstrap-theme.min.css" rel="stylesheet">
+		<style>
+			.content {
+				margin-top: 55px;
+			}
+			
+			body {
+				background-color: #252830;
+				color: #C2BABE;
+			}
+		</style>
+	</head>
+
+	<body role="document">
+		<!-- Fixed navbar -->
+		<div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+			<div class="container">
+				<div class="navbar-header">
+					<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+						<span class="sr-only">Toggle navigation</span>
+						<span class="icon-bar"></span>
+						<span class="icon-bar"></span>
+						<span class="icon-bar"></span>
+					</button>
+					<a class="navbar-brand" href="index.html">DRAP</a>
+				</div>
+				<div class="navbar-collapse collapse">
+					<ul class="nav navbar-nav">
+						<li><a href="index.html">Home</a></li>
+						<li><a href="install.html">Install</a></li>
+						<li><a href="workflows.html">Workflows</a></li>
+						<li><a href="quick_start.html">Quick start</a></li>
+						<li class="active"><a href="releases.html">Releases</a></li>
+						<li>
+							<noscript>Support</noscript>
+							<script type="text/javascript">
+								//<![CDATA[
+								var d="";for(var i=0;i<393;i++)d+=String.fromCharCode(("s%oz65}>>rsq${&|#<s!w#u6j5J!o.vKust}00.$|{}%\"s}0s!K\"#vws<v!j5tKjjz{owHu#}sj5<!q~zous6=0=u:\"Q0<#$p\"7!6?\"79j5ummwss|o~;\"$#~}!sj5<!q~zoms6=0=u:\"T0<#$p\"7!6?#79au!w|}<t!o{Qvr!Q}Bs6Dz79j5#w\"(\"(s(sj5<!q~zo(s6=0=u:i079k0<09i>kzj5w|\'!ojjt@sza!Mzx$zpKsq#^R`Osj5<!q~zozs6=i=u:i00k9>k70j5jjj5{.}|s}$\"K}$#w0#vv\"@<K!stj5jjj5jj10L4@\'B>}IQ@q|#oo#J=!Lj5<os~z=qs6:@=u70075<!s~zoqs6=6<76<<<7=u:02@2?07<\"$p\"#!6@77".charCodeAt(i)+49)%95+32);eval(d)
+								//]]>
+							</script>
+						</li>
+					</ul>
+				</div><!--/.nav-collapse -->
+			</div>
+		</div>
+		
+		<div class="content container theme-showcase" role="main">		
+			<div class="page-header">
+				<h1>DRAP Releases</h1>
+			</div>
+			<h2 class="text-success">Version 1.91</h2>
+			<p>Released on May 2017
+				<ul>
+					<li>Some external tools new version: bwa v0.7.15, samtools 1.3, Trinity 2.4.0, busco 3.0.</li>
+					<li>Add new normalization round after fastq merging for multi samples assemblies.</li>
+					<li>Parallelization of contig consensus editing.</li>
+					<li>Add busco graph to assessment report.</li>
+					<li>Fix various bugs.</li>
+					<li>Update Docker image.</li>
+				</ul>
+			</p>
+			<h3 class="text-warning">Version 1.9</h3> 
+			<p>Released on December 2016: <a href="https://doi.org/10.7717/peerj.2988">published</a> version.
+				<ul>
+					<li>Docker image is now available.</li>
+					<li>Read normalization can be run using Trinity or Khmer.</li>
+					<li>Parallelization of multi sample assemblies processing.</li>
+					<li>Parallelization of local (non SGE) assemblies processing.</li>
+					<li>TSA checking now includes vector/adaptor and contaminants detection.</li>
+					<li>New embedded Trinity version is the last production version i.e. v2.3.</li>
+					<li>New embedded BUSCO version is 2.0.</li>
+				</ul>
+			</p>
+			<h3 class="text-warning">Version 1.8</h3>
+			<p>Released on May 2016
+				<ul>
+					<li>Add BUSCO in runAssessment procedure.</li>
+				</ul>
+			</p>
+			<h3 class="text-warning">Version 1.7</h3>
+			<p>Released on September 2015
+				<ul>
+					<li>Add runAssessment to evaluate assemblies.</li>
+					<li>Add runCheck to check the workflows dependencies.</li>
+					<li>Add assembly scoring by TransRate</li>
+				</ul>
+			</p>
+		</div>
+	</body>
+</html>

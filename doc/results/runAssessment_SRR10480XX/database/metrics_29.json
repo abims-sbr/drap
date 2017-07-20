@@ -1,0 +1,13 @@
+{
+   "optimal_cutoff" : 0,
+   "optimal_score" : 0,
+   "score" : 0,
+   "contigs_scores" : {
+      "lower_quartile" : 0,
+      "upper_quartile" : 0,
+      "min" : 0,
+      "max" : 0,
+      "median" : 0,
+      "mean" : 0
+   }
+}

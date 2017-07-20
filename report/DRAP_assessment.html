@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<!--
+# Copyright (C) 2015 INRA
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<html>
+	<head>
+		<title>DRAP assessment</title>
+		<meta charset="UTF-8">
+		<meta name="version" content="1.0.0">
+		
+		<!-- DRAP CSS -->
+		<link rel="stylesheet" href="lib/css/drap.css">
+		<style>
+			#body {
+				width: 85%;
+    			margin-left: auto;
+   				margin-right: auto;
+			}
+			#menu-items {
+				margin-top: 10px;
+			}
+		</style>
+		
+		<!-- Externals CSS -->
+		<link rel="stylesheet" href="lib/css/bootstrap.min.css">
+		<link rel="stylesheet" href="lib/css/datatable.css">
+
+		<!-- Externals JS -->
+		<script type="text/javascript" src="lib/js/jquery-min.js"></script>
+		<script type="text/javascript" src="lib/js/highcharts-min.js"></script>
+		<script type="text/javascript" src="lib/js/highcharts-more-min.js"></script>
+		<script type="text/javascript" src="lib/js/highcharts-exporting-min.js"></script>
+		<script type="text/javascript" src="lib/js/bootstrap.min.js"></script>
+		<script type="text/javascript" src="lib/js/datatable.min.js"></script>
+		<script type="text/javascript" src="lib/js/dataTableExtractor.min.js"></script>
+
+		<!-- DRAP JS -->
+		<script type="text/javascript" src="lib/js/drap-utility.js"></script>
+		<script type="text/javascript" src="lib/js/drap-graph.js"></script>
+		<script type="text/javascript" src="lib/js/drap-analysis-templates.js"></script>
+		<script type="text/javascript">
+			/**
+			 * Returns the HTML table representation of remove chimera metrics.
+			 * @param step_data {Hash} By sample the remove chimera metrics.
+			 * @return {String} The HTML table.
+			 */
+			var chimera_assessment_table = function( step_data ){
+				var categories = ["Sample", "Nb chimeric contigs", "Nb chimeric nt"] ;
+				var data = new Array();
+				for( var sample in step_data ){
+					data.push( 
+						new Array(
+							sample == "default" ? "-" : sample,
+							(step_data[sample].nb_chimera_trim + step_data[sample].nb_chimera_removed),
+							step_data[sample].nb_nt_lost					
+						)
+					);
+				}
+			
+				return table( "Chimera-self information", categories, data ) ;
+			}
+			
+			/**
+			 * Returns hash use to init HightChart pie. 
+			 * @param pTitle {String} The title of the chart.
+			 * @param pData {Array} The HightChart series.
+			 * @return {Hash} Parameters to use in Highchart's constructor.
+			 */
+			var pieplot = function( pTitle, pData ) {
+				var chart = {
+					title: {
+						text: pTitle
+					},
+					credits: {
+						enabled: false
+					},
+					plotOptions: {
+						pie: {
+							allowPointSelect: true,
+							cursor: 'pointer',
+							dataLabels: {
+								enabled: false
+							},
+							showInLegend: true
+						}
+					},
+					series: [{
+						type: 'pie',
+						name: pTitle,
+						data: pData
+					}]
+				}
+				return chart ;
+			}
+			
+			 /**
+			  * Returns the hash to init an Highchart from number of included contigs. 
+			  * @example
+			  *     $('#test').highcharts( inclusion_chart(step.data.transdecoder) );
+			  * @param inclusion_data {Hash} By sample the number of included contigs.
+			  * @param fasta_data {Hash} By sample the length number of sequences in key 'nb_seq'.
+			  * @param ordered_samples {Array} The names of samples in display order.
+			  * @return {Hash} Parameter to use in Highchart's constructor.
+			  */
+			var inclusion_chart = function( inclusion_data, fasta_data, ordered_samples ){
+				var data = new Array();
+				var assemblies = new Array();
+				for( var assembly in fasta_data ){
+					assemblies.push(assembly);
+				}
+				if( assemblies.length == 1 ){
+					var nb_contigs = parseInt(fasta_data[assemblies[0]].nb_seq) ;
+					var nb_non_inclusions = null ;
+					if( inclusion_data ){
+						nb_non_inclusions = parseInt(inclusion_data[assemblies[0]].nb_seq) ;
+					}
+					data.push( new Array('Non included', nb_non_inclusions) );
+					data.push( new Array('Included in other(s)', (nb_contigs - nb_non_inclusions)) );
+					return pieplot( "Inclusion", data );
+				} else {
+					if( ordered_samples == null ){
+						ordered_samples = Object.keys( inclusion_data );
+					}
+					for( var sample_idx = 0 ; sample_idx < ordered_samples.length ; sample_idx++  ){
+						var assembly = ordered_samples[sample_idx] ;
+						var nb_contigs = parseInt(fasta_data[assembly].nb_seq) ;
+						var nb_non_inclusions = parseInt(inclusion_data[assembly].nb_seq) ;
+						var prct_included = Math.round(((nb_contigs-nb_non_inclusions)/nb_contigs)*10000)/100 ;
+						data.push({
+							name: assembly,
+				            data: [prct_included],
+						});
+					}
+						
+					var plot = barplot( "Nb included contigs", null, "% Contigs", null, data, 30 );
+					plot['xAxis'] = { 'labels': {'enabled': false} };
+					return plot ;
+				}
+			}
+		</script>
+
+		<!-- Main -->
+		<script type="text/javascript">
+			var db = null ;
+			$(function() {
+				// Load data
+				$.ajax({
+					dataType: "json",
+					url: "database/report_db.json",
+					error: function() {
+						$('#content').html( '<p class="alert alert-warning analysis-description" role="alert">The report database is missing.</p>' );
+					},
+					success: function( db_obj ) {
+						db = db_obj ;
+						
+						// Load sample order
+						var samples_order = null ;
+						if( db.processed != null && typeof db.processed === 'object' && db.processed.hasOwnProperty('samples') ){
+							samples_order = db.processed['samples'] ;
+						}
+						
+						// Load analysis
+						for( var analysis_idx in db.analysis ){
+							var analysis = db.analysis[analysis_idx] ;
+							for( var step_idx in analysis.steps ){
+								var step = analysis.steps[step_idx]
+								// Load data
+								for( var metrics_type in step.metrics ){
+									for( var sample in step.metrics[metrics_type] ){
+										$.ajax({
+											dataType: "json",
+											async: false,
+											url: "database/metrics_" + step.metrics[metrics_type][sample] + ".json",
+											sample_name: sample,
+											m_type: metrics_type,
+											error: function() {
+												// No data
+											},
+											success: function( metrics ) {
+												step.metrics[this.m_type][this.sample_name] = metrics ;
+											}
+										});
+									}
+								}
+							}
+						}
+						var assessment_data = db.analysis[0].steps[0].metrics ;
+						
+						// Remove invalid tabs
+						if( !assessment_data.hasOwnProperty('scoring') ){
+							$("#tab-assembly-scores").remove() ;
+						}
+						
+						// Contigs length
+						var lenght_plot = fastaLength_chart( assessment_data['fastaAssembly'], samples_order );
+						$('#contigs-length .graph').highcharts( lenght_plot[0], lenght_plot[1] );
+						$('#contigs-length .table-container').append( fastaLength_table(assessment_data['fastaAssembly']) );
+						
+						// CDS fusion
+						$('#split-orf').highcharts( transdecoder_chart(assessment_data['splitORFLog'], samples_order) );
+						if( !db.analysis[0].steps[0].metrics.hasOwnProperty('alnProtLog') ){
+							$('#split-protein').remove();
+						} else {
+							$('#split-protein').highcharts( contigByNbProt_chart(assessment_data['alnProtLog'], assessment_data['fastaAssembly'], samples_order) );
+						}
+						
+						// Chimera
+						$('#contigs-chimera .table-container').append( chimera_assessment_table(assessment_data['chimera']) );
+						
+						// Inclusion
+						$('#contigs-inclusions .graph').highcharts( inclusion_chart(assessment_data['inclusion'], assessment_data['fastaAssembly'], samples_order) );
+						
+						$('#assembly-compacity .table').each(function() {
+							var $table = $(this) ;
+							$table.DataTable({
+								"sDom": '<"top"<".btn-csv-export"><"clear">lf>rt<"bottom"ip><"clear">',
+								"scrollX": true
+							});
+							$('#' + $table.attr('id') + '_wrapper .btn-csv-export').attr( 'id', $table.attr('id') + '_export' );
+							$('#' + $table.attr('id') + '_export').html( '<button class="btn btn-primary"><span class="glyphicon glyphicon-open-file" aria-hidden="true">CSV</span></button>' );
+							$('#' + $table.attr('id') + '_export').addClass( 'dataTables_filter' );
+							$('#' + $table.attr('id') + '_export').datatableExport({
+								'$table': $('#' + $table.attr('id') + '_wrapper table')
+							});
+						});
+						
+						// Add tab listener
+						$('#menu-items a').click(function (e) {
+							e.preventDefault();
+							$(this).tab('show');	
+							if( $(this).attr('href') == '#assembly-representativeness' && $('#assembly-representativeness').hasClass('disabled') ){
+								$('#assembly-representativeness').removeClass( "disabled" );
+								
+								// Reads representation
+								$('#alignment-metrics .table-container').append( mapping_table(assessment_data['flagstatLog']) );
+								
+								// Gene set completeness
+								if( !db.analysis[0].steps[0].metrics.hasOwnProperty('geneCompletenessLog') ){
+									$('#gene-set-completeness').remove();
+								} else {
+									$('#gene-set-completeness .table-container').append( geneSet_table(assessment_data['geneCompletenessLog']) );
+									$('#gene-set-completeness .plot-img').append( geneSet_img() );
+								}
+								
+								// Known proteins representation
+								if( !db.analysis[0].steps[0].metrics.hasOwnProperty('alnProtLog') ){
+									$('#reference-prot-coverage').remove();
+								} else {
+									$('#reference-prot-coverage .table-container').append( proteinAln_table(assessment_data['alnProtLog']) );
+								}
+								
+								// Consensus bias
+								$('#consensus-bias-metrics .table-container').append( correctVariation_table(assessment_data['correctVariationLog']) );
+								
+								// Orientation metrics
+								$('#orientation-metrics .graph').highcharts( orientation_chart(assessment_data['orientationLog'], samples_order) );
+								
+								$('#assembly-representativeness .table').each(function() {
+									var $table = $(this) ;
+									$table.DataTable({
+										"sDom": '<"top"<".btn-csv-export"><"clear">lf>rt<"bottom"ip><"clear">',
+										"scrollX": true
+									});
+									$('#' + $table.attr('id') + '_wrapper .btn-csv-export').attr( 'id', $table.attr('id') + '_export' );
+									$('#' + $table.attr('id') + '_export').html( '<button class="btn btn-primary"><span class="glyphicon glyphicon-open-file" aria-hidden="true">CSV</span></button>' );
+									$('#' + $table.attr('id') + '_export').addClass( 'dataTables_filter' );
+									$('#' + $table.attr('id') + '_export').datatableExport({
+										'$table': $('#' + $table.attr('id') + '_wrapper table')
+									});
+								});
+							} else if( $(this).attr('href') == '#assembly-scores' && $('#assembly-scores').hasClass('disabled') ){
+								$('#assembly-scores').removeClass( "disabled" );
+								
+								// Global scores
+								$('#whole-scores .table-container').append( scoring_table(assessment_data['scoring']) );
+								
+								// Contigs scores
+								var scores_plot = scoring_chart( assessment_data['scoring'], samples_order );
+								$('#contigs-scores .graph').highcharts( scores_plot[0], scores_plot[1] );
+								
+								$('#assembly-scores .table').each(function() {
+									var $table = $(this) ;
+									$table.DataTable({
+										"sDom": '<"top"<".btn-csv-export"><"clear">lf>rt<"bottom"ip><"clear">',
+										"scrollX": true
+									});
+									$('#' + $table.attr('id') + '_wrapper .btn-csv-export').attr( 'id', $table.attr('id') + '_export' );
+									$('#' + $table.attr('id') + '_export').html( '<button class="btn btn-primary"><span class="glyphicon glyphicon-open-file" aria-hidden="true">CSV</span></button>' );
+									$('#' + $table.attr('id') + '_export').addClass( 'dataTables_filter' );
+									$('#' + $table.attr('id') + '_export').datatableExport({
+										'$table': $('#' + $table.attr('id') + '_wrapper table')
+									});
+								});
+							}
+						})
+					}
+				});
+			});
+		</script>
+	</head>
+	<body>
+		<div id="header">
+			<span class="title">DRAP</span><span class="subtitle">assessment</span>
+		</div>
+		<div id="body">
+			<ul id="menu-items" class="nav nav-tabs">
+				<li role="presentation" class="active">
+					<a href="#assembly-compacity" aria-controls="assembly-compacity" role="tab" data-toggle="tab">Assembly compacity</a>
+				</li>
+				<li role="presentation">
+					<a href="#assembly-representativeness" aria-controls="assembly-representativeness" role="tab" data-toggle="tab">Assembly representativeness</a>
+				</li>
+				<li role="presentation" id="tab-assembly-scores">
+					<a href="#assembly-scores" aria-controls="assembly-scores" role="tab" data-toggle="tab">Assembly scores</a>
+				</li>
+			</ul>
+			<div role="tabpanel">
+				<!-- Tab panes -->
+				<div class="tab-content">
+					<div role="tabpanel" class="tab-pane active" id="assembly-compacity">
+						<div id="contigs-length">
+							<h1 class="page-header">Contigs length</h1>
+							<div class="graph"></div>
+							<div class="table-container"></div>
+						</div>
+						
+						<div id="contigs-split">
+							<h1 class="page-header">Contigs fusion</h1>
+							<div class="graph">
+								<div id="split-orf"></div>
+								<div id="split-protein"></div>
+							</div>
+						</div>
+						
+						<div id="contigs-chimera">
+							<h1 class="page-header">Chimera self</h1>
+							<div class="table-container"></div>
+							<div class="bs-callout bs-callout-info analysis-description">
+								<p>A contigs has a self-chimera when a large segment of this contig is present several times in sequence. This analysis is processed with blast.</p>
+							</div>
+						</div>
+						
+						<div id="contigs-inclusions">
+							<h1 class="page-header">Contigs inclusions</h1>
+							<div class="graph"></div>
+							<div class="bs-callout bs-callout-info analysis-description">
+								<p>A contig is counted as included when his sequence is totally included in an other larger contig. This analysis is processed with cd-hit.</p>
+							</div>
+						</div>
+					</div>
+					<div role="tabpanel" class="tab-pane disabled" id="assembly-representativeness">
+						<div>
+							<div id="alignment-metrics">
+								<h1 class="page-header">Re-alignment</h1>
+								<div class="table-container"></div>
+							</div>
+							
+							<div id="gene-set-completeness">
+								<h1 class="page-header">Gene set completeness</h1>
+								<div class="table-container"></div>
+								<div class="plot-img"></div>
+								<div class="bs-callout bs-callout-info analysis-description">
+									<p>Aligns Benchmarking Universal Single-Copy Orthologs (BUSCO) from a specific lineage on contigs. Provided intuitive metrics describe the assembly completeness due to the fact that these orthologs are expected to be found in the genome of species from this lineage. These metrics are provided by BUSCO (<a href="http://busco.ezlab.org">details</a>).</p>
+								</div>
+							</div>
+
+							<div id="reference-prot-coverage">
+								<h1 class="page-header">Reference proteins coverage</h1>
+								<div class="table-container"></div>
+								<div class="bs-callout bs-callout-info analysis-description">
+									<p>Aligns the reference proteins on contigs. Only the best hits with an identity of 80% and a coverage 80% are retained.</p>
+								</div>
+							</div>
+
+							<div id="consensus-bias-metrics">
+								<h1 class="page-header">Consensus bias</h1>
+								<div class="table-container"></div>
+								<div class="bs-callout bs-callout-info analysis-description">
+									<p>Uses mapping to detect when consensus has an insertion/deletion/substitution against the reads majority in this position.</p>
+								</div>
+							</div>
+							<div id="orientation-metrics">
+								<h1 class="page-header">Pair orientation</h1>
+								<div class="graph"></div>
+								<div class="bs-callout bs-callout-info analysis-description">
+									<p>Uses mapping to process by contig the percentage of R1 (single or first reads in pair) oriented in forward on the contig.</p>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div role="tabpanel" class="tab-pane disabled" id="assembly-scores">
+						<div>
+							<div id="whole-scores">
+								<h1 class="page-header">Whole assembly scores</h1>
+								<div class="table-container"></div>
+								<div class="bs-callout bs-callout-info analysis-description">
+									<p>The score is designed so that an increased score is very likely to correspond to an assembly that is more biologically accurate (0 is the minimum possible score, while 1.0 is the maximum). The score is calculated as the geometric mean of all contig scores multiplied by the proportion of input reads that provide positive support for the assembly.</p>
+									<p>This score is produced by transrate (<a href="http://hibberdlab.com/transrate/metrics.html">details</a>).</p>
+								</div>
+							</div>
+							<div id="contigs-scores">
+								<h1 class="page-header">Contigs scores</h1>
+								<div class="graph"></div>
+								<div class="bs-callout bs-callout-info analysis-description">
+									<p>Each contig is assigned a score by measuring how well it is supported by read evidence (0 is the minimum possible score, while 1.0 is the maximum.).. The contig score can be thought of as measure of whether the contig is an accurate, complete, non-redundant representation of a transcript that was present in the sequenced sample.</p>
+									<p>This score is produced by transrate (<a href="http://hibberdlab.com/transrate/metrics.html">details</a>).</p>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

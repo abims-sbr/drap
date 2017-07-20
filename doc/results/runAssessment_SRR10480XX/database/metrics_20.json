@@ -1,0 +1,8 @@
+{
+   "contig_discrodant" : 155245,
+   "deletion_case" : 19443,
+   "errors_in_reads" : 3405516,
+   "substitution_case" : 692710,
+   "corrected_contigs" : 232485,
+   "insertion_case" : 9986
+}

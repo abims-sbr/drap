@@ -1,0 +1,143 @@
+{
+   "processed" : "/work/fescudie/drap/branches/runDrap/runMeta DRAP_oases_SRR1048059 DRAP_oases_SRR1048060 DRAP_oases_SRR1048061 DRAP_oases_SRR1048062 DRAP_oases_SRR1048063",
+   "analysis" : [
+      {
+         "steps" : [
+            {
+               "metrics" : {
+                  "fastaAssembly" : {
+                     "default" : 0
+                  }
+               },
+               "title" : "Rename and merge",
+               "id" : 0,
+               "description" : ""
+            }
+         ],
+         "title" : "Merge assemblies",
+         "id" : 0,
+         "description" : "Rename and merge all primary assembly contigs."
+      },
+      {
+         "steps" : [
+            {
+               "metrics" : {
+                  "fastaAssembly" : {
+                     "default" : 1
+                  }
+               },
+               "title" : "Longest ORF extraction",
+               "id" : 1,
+               "description" : ""
+            },
+            {
+               "metrics" : {
+                  "fastaAssembly" : {
+                     "default" : 2
+                  }
+               },
+               "title" : "Clustering with cd-hit",
+               "id" : 2,
+               "description" : ""
+            }
+         ],
+         "title" : "ORFs based clustering",
+         "id" : 1,
+         "description" : "Extract the longest ORF from each contig and clusterize ORFs"
+      },
+      {
+         "steps" : [
+            {
+               "metrics" : {
+                  "fastaAssembly" : {
+                     "default" : 3
+                  }
+               },
+               "title" : "Longest ORF/contig extraction",
+               "id" : 3,
+               "description" : ""
+            },
+            {
+               "metrics" : {
+                  "fastaAssembly" : {
+                     "default" : 4
+                  }
+               },
+               "title" : "Clustering with cd-hit-est",
+               "id" : 4,
+               "description" : ""
+            }
+         ],
+         "title" : "Contigs based clustering",
+         "id" : 2,
+         "description" : "From previous clusters, extract contigs with the longest ORF or the longest contig (multiple longest ORF have identical length). Clusterize contigs and discard contigs included in other ones."
+      },
+      {
+         "steps" : [
+            {
+               "metrics" : {},
+               "title" : "Reference indexation",
+               "id" : 5,
+               "description" : "Index the reference contig set using bwa or STAR."
+            },
+            {
+               "metrics" : {
+                  "flagstatLog" : {
+                     "DRAP_oases_SRR1048062" : 8,
+                     "DRAP_oases_SRR1048061" : 7,
+                     "DRAP_oases_SRR1048060" : 6,
+                     "DRAP_oases_SRR1048063" : 9,
+                     "DRAP_oases_SRR1048059" : 5
+                  }
+               },
+               "title" : "bwa",
+               "id" : 6,
+               "description" : "Align reads using bwa."
+            }
+         ],
+         "title" : "RMBT",
+         "id" : 3,
+         "description" : "Reads are mapped back to contigs."
+      },
+      {
+         "steps" : [
+            {
+               "metrics" : {
+                  "expressLog" : {
+                     "default" : 10
+                  },
+                  "fastaAssembly" : {
+                     "fpkm_10" : 14,
+                     "fpkm_3" : 12,
+                     "fpkm_5" : 13,
+                     "fpkm_1" : 11
+                  }
+               },
+               "title" : "Coverage filtering",
+               "id" : 7,
+               "description" : "Filter contigs below coverage or length thresholds."
+            }
+         ],
+         "title" : "Coverage cleanning",
+         "id" : 4,
+         "description" : "Use mapping to filter low coverage contigs."
+      },
+      {
+         "steps" : [
+            {
+               "metrics" : {
+                  "assemblyScoring" : {
+                     "default" : 15
+                  }
+               },
+               "title" : "Transrate score",
+               "id" : 8,
+               "description" : ""
+            }
+         ],
+         "title" : "Assembly scoring",
+         "id" : 5,
+         "description" : "Measures the quality of the assembly. A score is produced for the whole assembly, and for each contig."
+      }
+   ]
+}

@@ -1,0 +1,10 @@
+{
+   "nb_contig_by_nb_prot" : {
+      "6" : 2,
+      "1" : 9406,
+      "3" : 2,
+      "2" : 73
+   },
+   "nb_diff_proteins" : 10626,
+   "nb_contig_with_prot" : 9483
+}

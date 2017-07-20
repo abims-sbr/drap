@@ -1,0 +1,569 @@
+#! /usr/bin/perl -w
+
+use strict;
+use Pod::Usage;
+use Getopt::Long;
+use FindBin;
+use File::Basename;
+use File::Spec;
+use List::Util qw(uniq);
+use POSIX qw(ceil);
+use lib("$FindBin::RealBin/bin");
+use AsmUtils;
+
+my @backup_options = @ARGV;
+
+#------------------------------------------------------------
+# options and parameters
+#------------------------------------------------------------
+# Options definitions (name,format,default,required)
+my @getOptions = ( 
+	['help',undef,undef,0],
+	['1|R1','s{,}','',1],
+	['2|R2','s{,}','',0],
+	['o|outdir','s',undef,1], 						# Ouput directory
+	['s|strand','s',undef,0],						# For strand specific sequencing data: FR or RF for paired reads; F or R for single 	
+	['r|ref','s',undef,0],							# FASTA reference file
+	['d|dbg','s','oases',0],  						# De Bruijn Graph assembler: trinity|oases => [oases]
+	['k|kmer','s','25,31,37,43,49,55,61,65,69',0],	# Oases k-mers to perform assembly [25,31,37,43,49,55,61,65,69]
+	['trim','s','--quality 10 --stringency 3',0],	# trim_galore parameters BETWEEN SINGLE QUOTES ['--quality 10 --stringency 3']
+	['no-trim',undef,undef,0],						# Do not trim reads using trim_galore
+	['c|clean','s','-q 10 -t 33 -e',0], 			# "filter_illumina" script params BETWEEN SINGLE QUOTES ['-q 10 -t 33 -e']
+	['norm-src','s','trinity',0],					# Normalizer source trinity|khmer [trinity]
+	['norm','s',undef,0],							# Normalizer parameters BETWEEN SINGLE QUOTES ['--max_cov 50' if trinity]
+	['no-norm',undef,undef,0],						# Do not normalize reads using normalize_by_kmer_coverage
+	['no-norm-merge',undef,undef,0],				# Do not merge and normalize again lists of fastq files
+	['norm-merge-only',undef,undef,0],				# Only merge and normalize again lists of fastq files (useful with fastq files already normalized)
+	['n|discardN',undef,undef,0],					# Discard contigs containing N at merge step
+	['dbg-mem','i',undef,0],						# MEMORY for dbg step (Default: oases=100G, trinity=1G by 1M reads, hvmem=mem*3/2)
+	['norm-mem','i',undef,0],						# MEMORY for normalization step (Default: 2G by 1M reads, hvmem=mem*3/2)
+	['m|mapper','s','bwa',0],						# Mapper performing RMBT step (star or bwa) [bwa]
+	['alignR1','s{,}','',0],						# FASTQ for RMBT step if different from -1
+	['alignR2','s{,}','',0],						# FASTQ Mates for RMBT step if different from -2
+	['alignTrim',undef,undef,0],					# Map back trimmed reads at RMBT step
+	['alignNorm',undef,undef,0],					# Map back normalized reads at RMBT step
+	['t|type','s','orf',0],							# Length filter target: contig or orf [orf]
+	['l|length','i',200,0],							# Length filter cutoff in nucleotides [200]
+	['v|coverage','s','1,3,5,10',0],				# FPKM values used as coverage cutoff [1,3,5,10]
+	['no-rate',undef,undef,0],						# Do not perform assembly rating
+	['optimize',undef,undef,0],						# Apply the transrate optimization procedure on the assembly filtered with the lowest FPKM value
+	['q|quit','i',undef,0],							# Quit after step: 1:pre-process, 2:dbg, 3:merge, 4:clustering, 5:asm, 6:post-asm, 7:rmbt-editing
+	['nb-frags','i',undef,0],						# Number of reads in R1 fastq file(s)
+	['max-nb-frags','i',undef,0],					# Max number of reads in R1 fastq file
+	['exonerate',undef,undef,0],					# Only align reference using exonerate
+	['blat',undef,undef,0],							# Only align reference using blat
+	['write',undef,undef,0],						# Only write job submission files
+	['run',undef,undef,0],							# Only run writen job submission files
+	['cfg-file','s',undef,0],						# Allow user to define his own configuration file
+	['local',undef,undef,0],						# Execute jobs on local machine
+	['debug',undef,undef,0],						# run in debug mode
+	['no-qacct',undef,undef,0]						# no qacct request during assembly checking
+);
+
+# defaults values
+my $opt = {};
+my $required = {};
+map { $opt->{$_->[0]} = defined($_->[1]) && $_->[1] =~ /@|{.+}/ ? \@{[split(',',$_->[2])]} : $_->[2]; $required->{$_->[0]} = $_->[3] } @getOptions;
+
+# build options list
+my %getOptions = ();
+map { $getOptions{defined($_->[1]) ? $_->[0].'='.$_->[1] : $_->[0]} = ref($opt->{$_->[0]}) eq 'ARRAY' ? $opt->{$_->[0]} : \$opt->{$_->[0]} } @getOptions;
+
+# Retrieve options
+#  first, only retrieve output directory to test if it exists
+#  if outdir exists and outdir is the only option, get previous configuration
+my $outdir;
+Getopt::Long::Configure("pass_through");
+GetOptions('o|outdir=s' => \$outdir) || pod2usage();
+my $retrieve_conf = 0;
+if ($outdir && -d $outdir) {
+	print "Output directory exists.\n";
+	unless (@ARGV) {
+		print "No more argument, get previous configuration.\n";
+		$retrieve_conf = 1;
+	}
+	$opt = get_drap_config($outdir, $retrieve_conf, $opt);
+}
+$opt->{'o|outdir'} = $outdir; 
+# retrieve other options
+Getopt::Long::Configure("no_pass_through");
+GetOptions(%getOptions) || pod2usage();
+pod2usage(1) if ($opt->{'help'});
+
+# check required
+map { pod2usage("$_ is required") if ($required->{$_} && ! defined($opt->{$_})) } keys %$opt;
+
+# restrict keys of %opt to long option names - key 'o|outdir' become 'outdir' and replace - by _
+map { my $key = $_; s/.+\|//; s/-/_/g; $opt->{$_} = delete($opt->{$key}) } keys %$opt;
+
+# initialize drap path
+$opt->{binpath}	   = "$FindBin::RealBin/bin";
+$opt->{cfgpath}	   = "$FindBin::RealBin/cfg";
+$opt->{reportpath} = "$FindBin::RealBin/report";
+
+## allowing comma-separated lists of values as well as multiple occurrences of the options
+@{$opt->{R1}} = uniq(split(/,/, join(',', @{$opt->{R1}})));
+$opt->{pool} = scalar(@{$opt->{R1}});
+if (@{$opt->{R2}}) {
+	@{$opt->{R2}} = uniq(split(/,/, join(',', @{$opt->{R2}})));
+	printOutMessage("NUMBER of R1 and R2 FASTQ FILES DIFFERS") unless (scalar(@{$opt->{R1}}) == scalar(@{$opt->{R2}})); 
+}
+
+#------------------
+# params checkings
+#------------------
+if (defined($opt->{cfg_file})) {
+	unless (-f $opt->{cfg_file}) { printOutMessage("NO SUCH CONFIG FILE : $opt->{cfg_file}") };
+} else {
+	$opt->{cfg_file} = $opt->{cfgpath}."/drap.cfg";
+}
+
+map { printOutMessage("NO SUCH FASTQ FILE: $_") unless (-f $_) } @{$opt->{R1}};
+
+if (@{$opt->{R2}}) {
+	map { printOutMessage("NO SUCH FASTQ FILE: $_") unless (-f $_) } @{$opt->{R2}};
+	map {
+		printOutMessage("NAMES OF PAIRED FASTQ files MUST CONTAIN following strings:\n\t_R1_/_R2_ or _R1./_R2. or .R1./.R2. or _1_/_2_ or _1./_2. or .1./.2.\n\tOR MUST START with following strings:\n\tR1_/R2_ or R1./R2. or 1_/2_ or 1./2.\n")
+		unless (basename($_) =~ /[_.]R?1\.|_R?1_|^R?1[._]/);
+	} @{$opt->{R1}};
+	unless (defined($opt->{R1_position})) {
+		for (my $i = 0 ; $i < scalar(@{$opt->{R1}}) ; $i++) {
+			my $R1_pos = valid_R1_R2(basename($opt->{R1}->[$i]), basename($opt->{R2}->[$i]));
+			if (defined($R1_pos)) {
+				push (@{$opt->{R1_position}}, $R1_pos);
+			} else {
+				printOutMessage("NAMES OF PAIRED FASTQ files MUST ONLY DIFFER BY 1 or 2 AT THE SAME POSITION: ".basename($opt->{R1}->[$i])." # ".basename($opt->{R2}->[$i]));
+			}
+		}
+	}
+}
+
+if (defined($opt->{ref})) {
+	printOutMessage("NO SUCH REFERENCE FASTA FILE : $opt->{ref}") unless (-f $opt->{ref});
+}
+
+if (defined($opt->{strand})) {
+	if (@{$opt->{R2}}) {
+		printOutMessage("UNKNOWN STRAND-SPECIFIC library TYPE. Please choose \'RF\' or \'FR\' for PAIRED reads") if (($opt->{strand} ne 'RF') && ($opt->{strand} ne 'FR'));
+	} else {
+		printOutMessage("UNKNOWN STRAND-SPECIFIC library TYPE. Please choose \'R\' or \'F\' for SINGLE reads") if (($opt->{strand} ne 'F') && ($opt->{strand} ne 'R')); 
+	}
+}
+
+printOutMessage("ASSEMBLER MUST BE \'oases\' OR \'trinity\'") if (($opt->{dbg} ne 'oases' ) && ($opt->{dbg} ne 'trinity'));
+
+printOutMessage("OPTIONS no-trim AND alignTrim ARE NOT COMPATIBLE") if (defined($opt->{no_trim}) && defined($opt->{alignTrim}));
+
+printOutMessage("OPTIONS no-norm AND alignNorm ARE NOT COMPATIBLE") if (defined($opt->{no_norm}) && defined($opt->{alignNorm}));
+
+printOutMessage("OPTIONS no-norm AND no-norm-merge ARE NOT COMPATIBLE") if (defined($opt->{no_norm}) && defined($opt->{no_norm_merge}));
+
+printOutMessage("OPTIONS no-norm AND norm-merge-only ARE NOT COMPATIBLE") if (defined($opt->{no_norm}) && defined($opt->{norm_merge_only}));
+
+printOutMessage("OPTIONS no-norm-merge AND norm-merge-only ARE NOT COMPATIBLE") if (defined($opt->{no_norm_merge}) && defined($opt->{norm_merge_only}));
+
+printOutMessage("OPTIONS norm-merge-only AND alignNorm ARE NOT COMPATIBLE") if (defined($opt->{norm_merge_only}) && defined($opt->{alignNorm}));
+
+printOutMessage("OPTION no-norm-merge only available with list(s) of fastq files'") if (defined($opt->{no_norm_merge}) && $opt->{pool} == 1);
+
+printOutMessage("OPTION norm-merge-only only available with list(s) of fastq files'") if (defined($opt->{norm_merge_only}) && $opt->{pool} == 1);
+
+printOutMessage("MAPPER MUST BE \'bwa\' OR \'star\'") if (($opt->{mapper} ne 'bwa' ) && ($opt->{mapper} ne 'star'));
+
+if (@{$opt->{alignR1}}) { 
+	printOutMessage("OPTIONS alignR1 AND alignTrim ARE MUTUALLY EXCLUSIVE'") if (defined($opt->{alignTrim}) && !$retrieve_conf);
+	printOutMessage("OPTIONS alignR1 AND alignNorm ARE MUTUALLY EXCLUSIVE'") if (defined($opt->{alignNorm}) && !$retrieve_conf);
+	printOutMessage("PLEASE GIVE alignR1 FASTQ FILE TO ALIGN")               if ($opt->{alignR1} eq "");
+	@{$opt->{alignR1}} = uniq(split(/,/, join(',', @{$opt->{alignR1}})));
+	map { printOutMessage("NO SUCH FASTA FILE : $_") unless (-f $_) } @{$opt->{alignR1}};
+}
+
+if (@{$opt->{alignR2}}) {
+	printOutMessage("OPTIONS alignR2 AND alignTrim ARE MUTUALLY EXCLUSIVE'") if (defined($opt->{alignTrim}) && !$retrieve_conf);
+	printOutMessage("OPTIONS alignR2 AND alignNorm ARE MUTUALLY EXCLUSIVE'") if (defined($opt->{alignNorm}) && !$retrieve_conf);
+	printOutMessage("PLEASE GIVE alignR2 FASTQ FILE TO ALIGN") if ($opt->{alignR2} eq "");
+	@{$opt->{alignR2}} = uniq(split(/,/, join(',', @{$opt->{alignR2}})));
+	map { printOutMessage("NO SUCH FASTA FILE : $_") unless (-f $_) } @{$opt->{alignR2}};
+	printOutMessage("NUMBER of alignR1 and alignR2 FASTQ FILES DIFFERS") unless (scalar(@{$opt->{alignR1}}) == scalar(@{$opt->{alignR2}})); 
+}
+
+printOutMessage("OPTIONS alignTrim AND alignNorm ARE MUTUALLY EXCLUSIVE'") if (defined($opt->{alignTrim}) && defined($opt->{alignNorm}));
+
+unless (defined($opt->{local})) {
+	$opt->{local} = 1 if (get_scheduler_type($opt->{cfg_file}) eq 'local');
+}
+if ($opt->{local}) {
+	printOutMessage("OPTION dbg-mem IS REQUIRED in LOCAL SUBMISSION mode") if (!defined($opt->{dbg_mem}));
+	printOutMessage("OPTION norm-mem IS REQUIRED in LOCAL SUBMISSION mode") if (!defined($opt->{no_norm}) && !defined($opt->{norm_mem}));
+}
+
+printOutMessage("TYPE MUST BE \'contig\' OR \'orf\'") if (($opt->{type} ne 'contig') && ($opt->{type} ne 'orf'));
+
+printOutMessage("TRANSRATE OPTIMIZATION only available with PAIRED reads") if (defined($opt->{optimize}) && !@{$opt->{R2}});
+
+$opt->{filter} = $opt->{clean} =~ /-c/ ? 1 : 0;
+if ($opt->{filter}) {
+	my @fastq = @{$opt->{R1}};
+	push(@fastq, @{$opt->{alignR1}}) if @{$opt->{alignR1}};
+	for (my $i = 0 ; $i <= $#fastq ; $i++) {
+		# check fastq compatibility with fastq_illumina_filter
+		if (process_cmd(1, "$opt->{binpath}/test_illumina_filter.sh $fastq[$i]") == 1) {
+			printOutMessage("FASTQ CLEANING is only compatible with CASAVA 1.8 or later format");
+		}
+	}
+	if ($opt->{mapper} ne 'bwa') {
+		printOutMessage("FASTQ CLEANING is only compatible with BWA. Clean firstly your FASTQ file(s) to use STAR");
+	}
+}
+
+# create output directory
+mkdir($opt->{outdir}) or die "Can't create directory $opt->{outdir}\n" unless (-d $opt->{outdir});
+
+# add config params in %$opt
+my @steps = qw(preprocess dbg merge clustering asm post_asm rmbt_editing rmbt_filtering postprocess reference);
+my @dir_list = ("a-$opt->{dbg}", "b-merge", "c-asm", "d-post_asm", "e-rmbt_editing", "f-rmbt_filtering", "g-exonerate", "g-blat");	
+
+my $align_blat = defined($opt->{exonerate}) && $opt->{exonerate} ? 0 : 1;
+my $align_exonerate = defined($opt->{blat}) && $opt->{blat} ? 0 : 1;
+
+$opt->{paired}		   = @{$opt->{R2}} ? 1 : 0;
+$opt->{no_rate}		   = 1 unless ($opt->{paired});
+$opt->{submit_log}	   = $opt->{outdir}.'/00-assembly.log';
+$opt->{cmd_log}		   = $opt->{outdir}.'/00-runDrap_cmd.log';
+$opt->{stranded}	   = defined($opt->{strand}) ? 1 : 0;
+$opt->{kmers}		   = [split(/,/, $opt->{kmer})] unless (ref($opt->{kmers}) eq 'ARRAY');
+$opt->{kmer_status}	   = {map { $_, 0 } @{$opt->{kmers}}} unless (ref($opt->{kmer_status}) eq 'HASH');
+$opt->{coverages}	   = [split(/,/, $opt->{coverage})] unless (ref($opt->{coverages}) eq 'ARRAY');
+$opt->{blat}		   = $align_blat;
+$opt->{exonerate}	   = $align_exonerate;
+$opt->{dir_list}	   = [map { "$opt->{outdir}/$_" } @dir_list];
+$opt->{steps}		   = \@steps;
+$opt->{restart}		   = -f $opt->{cmd_log} ? 1 : 0;
+my $n				   = 0;
+$opt->{scripts}		   = {map { $_, [sprintf("%s/%02d-%s.sh", $opt->{outdir}, ++$n, $_ eq 'dbg' ? $opt->{dbg} : $_)] } @steps};
+$opt->{scripts}->{dbg} = [map { (my $split = $opt->{scripts}->{dbg}->[0]) =~ s/\.sh$/_$_.sh/; $split } 1..2] if ($opt->{dbg} eq 'trinity' && !$opt->{local});
+
+# define processed read file names
+foreach my $R (qw(R1 R2)) {
+	next unless (@{$opt->{$R}});
+	map { $opt->{$_.$R} = undef } qw(trim clean norm);
+	my $align = @{$opt->{"align$R"}} ? 1 : 0;
+	foreach my $fq (@{$opt->{$R}}) {
+		(my $basename = basename($fq)) =~ s/\.f(ast)?q(\.gz)?$//;
+		my $trim  = "$opt->{outdir}/$basename.trim.fq.gz";
+		my $clean = defined($opt->{no_trim}) ? "$opt->{outdir}/$basename.clean.fq" : "$opt->{outdir}/$basename.trim.clean.fq";
+		my $norm  = defined($opt->{no_trim}) ? "$opt->{outdir}/$basename.norm.fq.gz" : "$opt->{outdir}/$basename.trim.norm.fq.gz";
+		push (@{$opt->{"trim$R"}},  $trim) unless (defined($opt->{no_trim}));
+		push (@{$opt->{"clean$R"}}, $clean);
+		push (@{$opt->{"norm$R"}},  $norm) unless (defined($opt->{no_norm}) || defined($opt->{norm_merge_only}));
+		push (@{$opt->{"align$R"}}, defined($opt->{alignTrim}) ? $trim : defined($opt->{alignNorm}) ? $norm : $fq) unless ($align);
+	}
+	unless ($opt->{no_norm} || $opt->{pool} == 1 || $opt->{no_norm_merge}) {
+		$opt->{"merge$R"} = defined($opt->{no_trim}) ? "$opt->{outdir}/merge_$R.norm.fq.gz" : "$opt->{outdir}/merge_$R.trim.norm.fq.gz";
+	}
+}
+
+# convert path to absolute path for outdir and files outside outdir
+foreach my $key (qw(outdir R1 R2 trimR1 trimR2 normR1 normR2 alignR1 alignR2 mergeR1 mergeR2 ref cfg_file)) {
+	next unless (defined($opt->{$key}));
+	if (ref($opt->{$key}) eq 'ARRAY') {
+		for (@{$opt->{$key}}) { $_ = File::Spec->rel2abs($_) };
+	} else {
+		$opt->{$key} = File::Spec->rel2abs($opt->{$key});
+	}
+}
+
+# compute required mem for dbg and normalization steps
+unless (defined($opt->{local})) {
+	unless (defined($opt->{dbg_mem}) || $opt->{dbg} eq 'oases') {
+		$opt->{dbg_mem} = ceil(($opt->{nb_frags}||get_nb_frags($opt))*1e-6/16)*16;
+		$opt->{dbg_mem} = 64 if ($opt->{dbg_mem} < 64);
+	}
+	unless (defined($opt->{no_norm}) || defined($opt->{norm_mem})) {
+		# normalize by fastq: 1 Gb by million of the heaviest R1 file
+		$opt->{norm_mem} = ceil(($opt->{max_nb_frags}||get_nb_frags($opt, 1))*1e-6/16)*16;
+		if ($opt->{pool} > 1) {
+			# normalize all normalized fastq: 1 Gb for 2 millions of raw reads in all R1 files
+			my $mem = ceil($opt->{nb_frags}*5e-7/16)*16;
+			$opt->{norm_mem} = $mem if ($opt->{norm_mem} < $mem);
+		}
+		$opt->{norm_mem} = 64 if ($opt->{norm_mem} < 64);
+	}
+}
+
+# set default parameters for normalization step
+if (! $opt->{no_norm} && $opt->{norm_src} eq 'trinity' && (($opt->{norm} && $opt->{norm} !~ /--max_cov \d+/) || !$opt->{norm})) {
+	$opt->{norm} .= ' --max_cov 50';
+}
+
+# expand PATH and ENV variables
+$ENV{PATH} = $opt->{binpath}.":".$ENV{PATH} ;
+set_extended_path($opt->{cfg_file});
+set_env_variables($opt->{cfg_file}, $opt);
+
+# write command in log file
+open(LOG, ">>$opt->{cmd_log}") or die "Can't open file $opt->{cmd_log}\n";
+print LOG "$0 ".join(' ', map { / / ? "'$_'" : $_ } @backup_options)."\n";
+close LOG;
+
+# write json file containing pipeline parameters
+set_drap_config($opt->{outdir}, $opt);
+
+unless (defined($opt->{run})) {
+	system("$opt->{binpath}/write_jobs_files.pl $outdir");
+}
+
+unless (defined($opt->{write})) {
+	system("$opt->{binpath}/submit_jobs_files.pl $outdir");
+}
+
+exit 0;
+
+=pod
+
+=head1 NAME
+
+runDrap
+
+=head1 SYNOPSIS
+
+ runDrap \
+   --outdir OUTPUT_DIR \
+   --R1 R1_FILE[,...,R1_FILE_n] \
+   [--R2 R2_FILE[,...,R2_FILE_n] \
+   [--strand R|F|RF|FR] \
+   [--ref FASTA_REF] \
+   [--dbg oases|trinity] \
+   [--kmer KMER_LIST] \
+   [--mapper bwa|STAR] \
+   [--alignTrim] \
+   [--alignNorm] \
+   [--write] \
+   [--run] \
+   ... \
+   --help
+
+=head1 DESCRIPTION
+
+DRAP is a De novo Rna-seq Assembly Pipeline allowing to clean and filter RNA-seq de novo assemblers results
+to get the most compact and complete set of transcripts. The workflow is used to produce an assembly from one 
+or several sample/tissue/development stage. From single-end reads (R1) or paired-end reads (R1 and R2) of the sample,
+it generates an assembly and a report in report/DRAP_report.html.
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-o, --outdir> OUTPUT_DIR
+
+The path for the output directory. The last folder will be created by the
+workflow.
+If you use an already existing output directory the workflow will process only
+the missing results (this is used in rerun after error).
+If you use an already existing output directory and give no other options,
+the previous set of options will be used to rerun the workflow.
+
+=item B<-1, --R1> R1_FILE[,...,R1_FILE_n]
+
+The R1 file(s) in FASTQ format (gzipped or not), comma-separated.
+
+=item B<-2, --R2> R2_FILE[,...,R2_FILE_n]
+
+The R2 file(s) in FASTQ format (gzipped or not), comma-separated.
+
+=item B<-s, --strand> FR|RF|F|R
+
+For strand specific sequencing data: FR or RF for paired reads; F or R for single
+
+=item B<-r, --ref> FASTA_FILE
+
+Fasta file with knowns proteins or transcripts to align with contigs using Exonerate or Blat.
+
+=item B<-d, --dbg> trinity|oases
+
+De Bruijn Graph assembler to perform assembly.
+The default assembler is oases.
+
+=item B<-k, --kmer> INTEGER_LIST
+
+Oases k-mers list to perform dbg assembly, comma-separated.
+The default kmer list is 25,31,37,43,49,55,61,65,69.
+Ignored with trinity.
+
+=item B<--trim> 'STRING'
+
+trim_galore parameters BETWEEN SINGLE QUOTES to perform the reads trimming step before dbg assembly.
+The default parameters are '--quality 10 --stringency 3'.
+See trim_galore --help.
+
+=item B<--no-trim>
+
+Do not trim reads using trim_galore before assembly.
+
+=item B<-c, --clean> 'STRING'
+
+filter_illumina parameters BETWEEN SINGLE QUOTES to perform the reads cleaning step before dbg assembly.
+The default parameters are '-q 10 -t 33 -e'.
+See DRAP_DIR/bin/filter_illumina --help.
+
+=item B<--norm-src> trinity|khmer
+
+Normalizer source to perform the reads normalization step before dbg assembly.
+Available sources are trinity with the insilico_read_normalization.pl script or the khmer package.
+The default source is trinity. 
+
+=item B<--norm> 'STRING'
+
+Normalizer parameters BETWEEN SINGLE QUOTES.
+The default parameters are '--max_cov 50' for trinity.
+No default parameters for khmer.
+
+=item B<--no-norm>
+
+Do not normalize reads before assembly.
+
+=item B<--norm-mem> INTEGER
+
+The maximum memory used for the normalization step in Gb of RAM. DRAP normalizes in two step if R1 (and R2)
+parameter(s) are lists of fastq files: 1) DRAP normalizes each fastq file or pair of fastq files separately.
+2) DRAP merges normalized fastq files and performs another normalization on the merged fastq files or 
+pairs of fastq files.
+The default mem is the highest between 1 Gb by million of reads for the heaviest fastq file or pair of
+fastq files (step 1) or 1 Gb for 2 millions of reads in all fastq files or pairs of fastq 
+files (we expects files to be twice as light after normalization).
+The default norm-mem has a minimum of 64 Gb.
+
+=item B<--no-norm-merge>
+
+If R1 (and R2) parameter(s) are lists of fastq files, only normalize each fastq file or pair of fastq
+files separately.
+
+=item B<--norm-merge-only>
+
+If R1 (and R2) parameter(s) are lists of fastq files, do not normalize each fastq file or pair of fastq
+files separately. Just merge fastq files and perform normalization on the merged fastq files or pairs
+of fastq files (useful with fastq files already normalized).
+
+=item B<--dbg-mem> INTEGER
+
+The maximum memory used for the dbg step in Gb of RAM.
+The default dbg-mem for oases is 100 Gb.
+For trinity, the default dbg-mem is computed with 1 Gb by million of reads with a minimum of 64 Gb.
+
+=item B<-n, --discardN>
+
+Discard contigs containing N after dbg assembly.
+
+=item B<-m, --mapper> bwa|star
+
+Mapper to perform the RMBT step (Reads Mapped Back to Transcripts).
+Available mappers are bwa and star.
+The default mapper is bwa. 
+
+=item B<--alignR1> R1_FILE[,...,R1_FILE_n]
+
+The R1 file(s) to align at RMBT step if different from --R1, comma-separated.
+
+=item B<--alignR2> R2_FILE[,...,R2_FILE_n]
+
+The R2 file(s) to align at RMBT step if different from --R2, comma-separated.
+
+=item B<--alignTrim>
+
+Map back trimmed reads at RMBT step.
+
+=item B<--alignNorm>
+
+Map back normalized reads at RMBT step.
+
+=item B<-l, --length> INTEGER
+
+Length filter cutoff in nucleotides at the contig filtering step.
+The default length is 200. 
+
+=item B<-t, --type> contig|orf
+
+Filter target type is contig or orf. If type is contig, contigs shorter than the length filter cutoff are discarded.
+If type is orf, contigs with a longest orf shorter than the length filter cutoff are discarded.
+
+=item B<-v, --coverage> INTEGER_LIST
+
+FPKM list of values used as coverage filter cutoff, comma-separated. For each value, a subset of the final contig set 
+will be created only with contigs having an higher abundance estimation.
+Abundances are estimated with eXpress. Default list is 1,3,5,10.
+
+=item B<--no-rate>
+
+Without this option TransRate (http://hibberdlab.com/transrate/) is used to 
+produce a score on assembly from paired-end data. The score is calculated as 
+the geometric mean of all contig scores multiplied by the proportion of input 
+reads that provide positive support for the assembly.
+By default, TransRate is performed on the assembly filtered with the lowest FPKM value.
+
+=item B<--optimize>
+
+Apply the TransRate optimization procedure on the assembly filtered with the lowest FPKM value.
+This will create a subset of the final contig set only with contigs having a TransRate score higher
+than the TransRate optimal score.
+
+=item B<-q, --quit> INTEGER
+
+Quit workflow after step: 
+  1:pre-process ; 2:dbg ; 3:merge ; 4:clustering ; 5:asm ; 6:post-asm ; 7:rmbt-editing
+
+=item B<--nb-frags>
+
+Number of reads in R1 fastq file(s).
+Computed before running workflow if not provided.
+
+=item B<--max-nb-frags>
+
+Max number of reads in R1 fastq file.
+Computed before running workflow if not provided.
+
+=item B<--exonerate>
+
+Align reference with contigs using Exonerate only.
+
+=item B<--blat>
+
+Align reference with contigs using Blat only.
+
+=item B<--cfg-file>
+
+Run worflow with a user DRAP configuration file.
+This file must keep the syntax of the default configuration file.
+The default configuration file is DRAP_DIR/cfg/drap.cfg.
+
+=item B<--write>
+
+Only write job submission files and exit before running workflow.
+Allow users to modify by hand some scripts executed during the workflow.
+
+=item B<--run>
+
+Only execute job submission files. For example, after user script modifications.
+
+=item B<-h, --help>
+
+Print help.
+
+=back
+
+=head1 VERSION
+
+1.91
+
+=head1 AUTHORS
+
+ Cedric Cabau - Anis Djari - INRA Toulouse - sigenae-support@listes.inra.fr
+
+=head1 COPYRIGHT
+
+ 2016 INRA
+
+=head1 LICENSE
+
+ GNU GPLv3
+
+=cut

@@ -1,0 +1,10 @@
+{
+   "fpkm_distribution" : {
+      "lower_quartile" : 11.04,
+      "upper_quartile" : 29.05,
+      "min" : 0,
+      "max" : 14451.56,
+      "median" : 18.03,
+      "mean" : 31.44
+   }
+}

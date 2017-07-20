@@ -1,0 +1,168 @@
+#!/usr/bin/perl
+
+# Usage: submitJob [options] file
+#        submitJob [options] --binary "command"
+# 
+# --name        Job name
+# --stderr      Standard error stream path
+# --stdout      Standard output stream path
+# --queue       Bind job to queue
+# --resources   Request the given resources
+# --options     Specify additionnal options
+# --array       Submit a job array
+# --sync        Wait for job to end and return exit code
+# --binary      Handle command as binary
+
+# CAREFUL: command and params MUST BE QUOTED if they contain whitespaces
+
+# END HELP
+
+# defaults values
+
+use strict;
+use FindBin;
+use Pod::Usage;
+use Getopt::Long;
+Getopt::Long::Configure("prefix_pattern=(--)");
+
+# Options definitions (name,format,default,required)
+my @getOptions = ( 
+	['help',undef,undef,0],
+	['man',undef,undef,0],
+	['name','s',undef,0], 							# Job name
+	['stderr','s',undef,0],							# Standard error stream path
+	['stdout','s',undef,0],							# Standard output stream path
+	['queue','s',undef,0],						    # Bind job to queue
+	['resources','s',undef,0],						# Request the given resources
+	['options','s@{0,}',undef,0],					# Specify additionnal options
+	['array',undef,undef,0],						# Submit a job array
+	['sync',undef,undef,0],							# Wait for job to end and return exit code
+	['binary',undef,undef,0],						# Handle command as binary
+	['log','s',undef,0],							# Print command to submit to log file
+	['print',undef,undef,0],						# Print command to submit to stdout
+	['complete',undef,undef,0]						# Print sge output to stdout
+);
+my %sge_options = (
+	'name'      => '-N',
+	'stderr'    => '-e',
+	'stdout'    => '-o',
+	'queue'     => '-q',
+	'resources' => '-l',
+	'options'   => '',
+	'sync'      => '-sync',
+);
+my @sge_opt_order = qw(name sync stdout stderr queue resources options);
+
+my $opt = {};
+my $required = {};
+map { $opt->{$_->[0]} = $_->[2]; $required->{$_->[0]} = $_->[3] } @getOptions;
+# build options list
+my %getOptions = ();
+map { $getOptions{defined($_->[1]) ? $_->[0].'='.$_->[1] : $_->[0]}=\$opt->{$_->[0]} } @getOptions;
+# retrieve options
+GetOptions(%getOptions) || pod2usage(2);
+pod2usage(1) if ($opt->{'help'});
+pod2usage(-exitstatus => 0, -verbose => 2) if ($opt->{'man'});
+# check required
+map { pod2usage("$_ is required") if ($required->{$_} && ! defined($opt->{$_})) } keys %$opt;
+# concatenate array options
+if (defined($opt->{options})) {
+	$opt->{options} = join(' ', @{$opt->{options}});
+}
+
+my $default_queue = $ENV{'default_queue'} || 'workq';
+my $mem_queue     = $ENV{'mem_queue'}     || 'hypermemq';
+my $node_max_mem  = $ENV{'node_max_mem'}  || 240;
+my $qarray = 'qarray' ;
+`which $qarray 2> /dev/null`;
+if ($?) {
+	$qarray = "$FindBin::RealBin/qarray.sh";
+}
+my $command = join(' ', @ARGV);
+if ($command) {
+	if (defined($opt->{binary})) {
+		$command = qq(-b y "$command");
+	} else {
+		pod2usage("UNABLE TO FIND COMMAND FILE: $command") unless (-f $command);
+	}
+} else {
+	pod2usage('PLEASE GIVE COMMAND TO SUBMIT');
+}
+
+(my $h_vmem = $opt->{resources}) =~ s/.*h_vmem=(\d+)G.*/$1/;
+($h_vmem ||= $opt->{options}) =~ s/.*h_vmem=(\d+)G.*/$1/;
+$opt->{queue} ||= $h_vmem && $h_vmem > $node_max_mem ? $mem_queue : $default_queue;
+$opt->{sync} = 'y' if (defined($opt->{sync}));
+my @arguments;
+foreach my $option (@sge_opt_order) {
+	push(@arguments, $sge_options{$option} ? ($sge_options{$option}, $opt->{$option}) : $opt->{$option}) if (defined($opt->{$option}));
+}
+my $submission = sprintf("%s %s", defined($opt->{array}) ? "$qarray -V" : 'qsub -V', join(' ', @arguments, $command));
+if (defined($opt->{log})) {
+	open(LOG, ">>$opt->{log}") or die("CANNOT OPEN LOG FILE: $opt->{log}");
+	print LOG $submission."\n";
+}
+print $submission."\n" if (defined($opt->{print}));
+chomp(my $sge_output = qx($submission 2>&1));
+my ($job_id) = $sge_output =~ m/Your job(?:-array)? (\d+).+/;
+die("UNABLE TO GET JOB_ID FROM SGE OUTPUT:\n$sge_output\n") unless ($job_id);
+if (defined($opt->{log})) {
+	print LOG "$sge_output\n";
+	close LOG;
+}
+print defined($opt->{complete}) ? "$sge_output\n$job_id\n" : "$job_id\n";
+
+exit 0;
+
+=pod
+
+=head1 NAME
+
+submitJob
+
+=head1 SYNOPSIS
+
+submitJob [options] -- <file>
+submitJob [options] -- <command>
+
+=head1 OPTIONS
+
+ COMMAND	  TYPE		DETAILS
+ ===============================================
+ --name       <STRING>    Job name
+ --stdout     <PATH>      Standard output stream path
+ --stderr     <PATH>      Standard error stream path
+ --queue      <STRING>    Bind job to queue
+ --resources  <STRING>    Request the given resources
+ --options    <STRING>    Specify additionnal options
+ --array                  Submit a job array
+ --sync                   Wait for job to end and return exit code
+ --binary                 Handle command as binary
+ --log        <FILE>      Print command to submit to log file
+ --print                  Print command to submit to stdout
+ --complete               Print SGE output to stdout
+ --help                   Print a brief help message and exit
+ --man                    Print the manual page and exit
+
+=head1 DESCRIPTION
+
+Submit job to SGE and return SGE job id.
+File or command to submit to SGE must be positionned after '--'.
+
+=head1 VERSION
+
+1.0
+
+=head1 AUTHORS
+
+ Cedric Cabau - INRA Toulouse - sigenae-support@listes.inra.fr
+
+=head1 COPYRIGHT
+
+ 2015 INRA
+
+=head1 LICENSE
+
+ GNU GPLv3
+
+=cut

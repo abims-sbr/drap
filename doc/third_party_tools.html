@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	
+	<title>DRAP</title>
+	
+	<!-- Bootstrap core CSS -->
+	<link href="lib/css/bootstrap.min.css" rel="stylesheet">
+	<!-- Bootstrap theme -->
+	<link href="lib/css/bootstrap-theme.min.css" rel="stylesheet">
+	<style>
+	.content {
+		margin-top: 55px;
+	}
+
+	body {
+		background-color: #252830;
+		color: #C2BABE;
+	}
+	</style>
+</head>
+
+<body role="document">
+	<!-- Fixed navbar -->
+	<div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+		<div class="container">
+			<div class="navbar-header">
+				<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+					<span class="sr-only">Toggle navigation</span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+				</button>
+				<a class="navbar-brand" href="index.html">DRAP</a>
+			</div>
+			<div class="navbar-collapse collapse">
+				<ul class="nav navbar-nav">
+					<li><a href="index.html">Home</a></li>
+					<li><a href="install.html">Install</a></li>
+					<li><a href="workflows.html">Workflows</a></li>
+					<li><a href="quick_start.html">Quick start</a></li>
+					<li><a href="releases.html">Releases</a></li>
+						<li>
+							<noscript>Support</noscript>
+							<script type="text/javascript">
+								//<![CDATA[
+								var d="";for(var i=0;i<393;i++)d+=String.fromCharCode(("s%oz65}>>rsq${&|#<s!w#u6j5J!o.vKust}00.$|{}%\"s}0s!K\"#vws<v!j5tKjjz{owHu#}sj5<!q~zous6=0=u:\"Q0<#$p\"7!6?\"79j5ummwss|o~;\"$#~}!sj5<!q~zoms6=0=u:\"T0<#$p\"7!6?#79au!w|}<t!o{Qvr!Q}Bs6Dz79j5#w\"(\"(s(sj5<!q~zo(s6=0=u:i079k0<09i>kzj5w|\'!ojjt@sza!Mzx$zpKsq#^R`Osj5<!q~zozs6=i=u:i00k9>k70j5jjj5{.}|s}$\"K}$#w0#vv\"@<K!stj5jjj5jj10L4@\'B>}IQ@q|#oo#J=!Lj5<os~z=qs6:@=u70075<!s~zoqs6=6<76<<<7=u:02@2?07<\"$p\"#!6@77".charCodeAt(i)+49)%95+32);eval(d)
+								//]]>
+							</script>
+						</li>
+				</ul>
+			</div><!--/.nav-collapse -->
+		</div>
+	</div>
+
+	<div class="content container theme-showcase" role="main">		
+		<div class="page-header">
+			<h1>runDrap 3rd party tools</h1>
+		</div>
+		<div class="table-responsive">
+			<table class="table">
+				<thead>
+					<tr>
+						<th>Process (step name)</th>
+						<th>Package</th>
+						<th>Version</th>
+						<th>Default command</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td rowspan="7">Pre-processing<br>(preprocess)</td>
+						<td>parallel</td>
+						<td>20141022</td>
+						<td style="font-family: Courier New">parallel --joblog &lt;logfile&gt; -j %d -N %d &lt;cmd&gt; ::: &lt;input_files&gt;</td>
+					</tr>
+					<tr>
+						<td>trim_galore</td>
+						<td>0.4.0</td>
+						<td style="font-family: Courier New">trim_galore --gzip --no_report_file --length %d --output_dir &lt;outdir&gt; --quality 10 --stringency 3 --paired &lt;R1.fq&gt; &lt;R2.fq&gt;</td>
+					</tr>
+					<tr>
+						<td>fastq_illumina_filter</td>
+						<td>0.1</td>
+						<td style="font-family: Courier New">fastq_illumina_filter -N</td>
+					</tr>
+					<tr>
+						<td>Trinity</td>
+						<td>2.4.0</td>
+						<td style="font-family: Courier New">insilico_read_normalization.pl --seqType fq --JM %dG --CPU %d --output tmp_norm --max_cov 50 --pairs_together --PARALLEL_STATS --left &lt;R1.fq&gt; --right &lt;R2.fq&gt;</td>
+					</tr>
+					<tr>
+						<td rowspan="3">Khmer</td>
+						<td rowspan="3">2.0</td>
+						<td style="font-family: Courier New">interleave-reads.py &lt;R1.fq&gt; &lt;R2.fq&gt;</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">normalize-by-median.py -M %d --output - -</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">split-paired-reads.py -1 &lt;R1.fq&gt; -2 &lt;R2.fq&gt;</td>
+					</tr>
+					<tr>
+						<td rowspan="5">DBG assembly<br>(dbg)</td>
+						<td>Trinity</td>
+						<td>2.4.0</td>
+						<td style="font-family: Courier New">Trinity --no_cleanup --seqType fq --max_memory %dG --bflyHeapSpaceMax 4G --CPU %d --output &lt;outdir&gt;--no_normalize_reads --left &lt;R1.fq&gt; --right &lt;R2.fq&gt;</td>
+					</tr>
+					<tr>
+						<td rowspan="3">Velvet</td>
+						<td rowspan="3">1.2.07</td>
+						<td style="font-family: Courier New">velveth &lt;outdir&gt; 27 -shortPaired -fastq - -noHash</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">velveth &lt;outdir&gt; &lt;kmer&gt; -strand_specific -reuse_Sequences</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">velvetg &lt;outdir&gt; -read_trkg yes -min_contig_lgth 100 -cov_cutoff 4</td>
+					</tr>
+					<tr>
+						<td>Oases</td>
+						<td>0.2.06</td>
+						<td style="font-family: Courier New">oases &lt;outdir&gt; -cov_cutoff 4</td>
+					</tr>
+					<tr>
+						<td rowspan="3">DBG cleaning<br>(merge)</td>
+						<td rowspan="2">seqclean</td>
+						<td rowspan="2">20110222</td>
+						<td style="font-family: Courier New">seqclean &lt;input.fa&gt; -o &lt;output.fa&gt;</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">cdbyank -l &lt;input.cidx&gt;</td>
+					</tr>
+					<tr>
+						<td>NCBI Blast+</td>
+						<td>2.2.29</td>
+						<td style="font-family: Courier New">blastn -query &lt;input.fa&gt; -subject &lt;input.fa&gt; -strand both -task megablast -dust no</td>
+					</tr>
+					<tr>
+						<td rowspan="2">Inclusion removing<br>(clustering)</td>
+						<td rowspan="2">cd-hit</td>
+						<td rowspan="2">4.6</td>
+						<td style="font-family: Courier New">cd-hit-est -i &lt;input.fa&gt; -o &lt;outdir&gt; -M 0 -d 0 -c 0.98</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">cd-hit -i&nbsp;&lt;input.fa&gt; -o&nbsp;&lt;outdir&gt; -M 0 -d 0 -c 0.90 -g 1</td>
+					</tr>
+					<tr>
+						<td>OLC assembly<br>(asm)</td>
+						<td>tgicl</td>
+						<td>2.1</td>
+						<td style="font-family: Courier New">tgicl -F &lt;input.fa&gt; -l 60 -p 96 -s 100000</td>
+					</tr>
+					<tr>
+						<td rowspan="5">Cleaning<br>(post_asm)</td>
+						<td rowspan="2">TransDecoder</td>
+						<td rowspan="2">2.0.1</td>
+						<td style="font-family: Courier New">TransDecoder.LongOrfs -t &lt;input.fa&gt;</td>
+					</tr>
+					<tr>
+						<td style="font-family: Courier New">TransDecoder.Predict -t &lt;input.fa&gt;</td>
+					</tr>
+					<tr>
+						<td>bedtools</td>
+						<td>2.22.1</td>
+						<td style="font-family: Courier New">bedtools merge -c 4 -o distinct -i -</td>
+					</tr>
+					<tr>
+						<td>NCBI tools</td>
+						<td>6.1</td>
+						<td style="font-family: Courier New">vecscreen -i &lt;input.fa&gt; -d &lt;database.fa&gt; -f 3</td>
+					</tr>
+					<tr>
+						<td>EMBOSS</td>
+						<td>6.4.0.0</td>
+						<td style="font-family: Courier New">getorf -auto -filter</td>
+					</tr>
+					<tr>
+						<td rowspan="3">Editing by reads alignment<br>(rmbt_editing)</td>
+						<td>bwa</td>
+						<td>0.7.12</td>
+						<td style="font-family: Courier New">bwa [aln|sampe|samse]</td>
+					</tr>
+					<tr>
+						<td>STAR</td>
+						<td>2.4.0i</td>
+						<td style="font-family: Courier New">STAR --genomeDir &lt;dir&gt; --readFilesIn &lt;R1.fq&gt; &lt;R2.fq&gt; --alignIntronMin 10 --alignIntronMax 25000 --outFilterMultimapNmax 10000</td>
+					</tr>
+					<tr>
+						<td>samtools</td>
+						<td>1.1</td>
+						<td style="font-family: Courier New">samtools [mpileup|sort|index|flagstat|view|merge|faidx]</td>
+					</tr>
+					<tr>
+						<td>Filtering by reads alignment<br>(rmbt_filtering)</td>
+						<td>eXpress</td>
+						<td>1.5.1</td>
+						<td style="font-family: Courier New">express --no-update-check --no-bias-correct --logtostderr --output-dir &lt;outdir&gt; &lt;reference.fa&gt; &lt;input.bam&gt;</td>
+					</tr>
+					<tr>
+						<td>Scoring<br>(postprocess)</td>
+						<td>TransRate</td>
+						<td>1.0.1</td>
+						<td style="font-family: Courier New">transrate --assembly=&lt;input.fa&gt; --left=&lt;R1.fq&gt; --right=&lt;R2.fq&gt; --threads=%d --output=&lt;outdir&gt;</td>
+					</tr>
+					<tr>
+						<td rowspan="2">Reference alignment<br>(reference)</td>
+						<td>Exonerate</td>
+						<td>2.2.0</td>
+						<td style="font-family: Courier New">exonerate --percent 50 --verbose 0 --showalignment no --showvulgar no &lt;queries.fa&gt; &lt;targets.fa&gt;</td>
+					</tr>
+					<tr>
+						<td>Blat</td>
+						<td>BlatSuite v34</td>
+						<td style="font-family: Courier New">blat &lt;targets.fa&gt; &lt;queries.fa&gt; -noHead &lt;output.psl&gt;</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+</body>
+</html>

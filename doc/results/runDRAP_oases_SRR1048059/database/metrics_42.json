@@ -1,0 +1,8 @@
+{
+   "paired" : 10002940,
+   "nb_read_2" : 5001470,
+   "properly_paired" : 7429664,
+   "nb_read_1" : 5001470,
+   "mate_on_other_chr" : 113387,
+   "mapped" : 7865671
+}

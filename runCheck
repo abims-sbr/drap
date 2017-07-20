@@ -1,0 +1,198 @@
+#!/usr/bin/perl
+# $Id$
+
+=pod
+
+=head1 NAME
+
+ runCheck
+
+=head1 SYNOPSIS
+
+ runCheck \
+   --cfg-file FILE_PATH \
+   [--print-path] \
+   [--path-extends-tag STRING] \
+   [--softwares-tag STRING] \
+   --help
+
+=head1 DESCRIPTION
+
+ Evaluates all dependencies of a software and reports the unavailable 
+ dependencies. RunCheck works from a config file with at least 2 sections. The
+ 1st section contains the list of folders to add in the $PATH. The 2nd section
+ contains the list of sub-softwares called in evaluated softwares.
+ 
+=head1 OPTIONS
+
+=over 8
+
+=item B<-c, --cfg-file>
+
+The path to the config file containing the softwares to evaluate.
+
+=item B<-c, --print-path>
+
+Display the full PATH for each software.
+
+=item B<-h, --help>
+
+Print help.
+
+=item B<-p, --path-extends-tag>
+
+The name of the section containing the list of folders to add in $PATH.
+[default: "PATH"]
+
+=item B<-s, --softwares-tag>
+
+The name of the section containing the software to check.
+[default: "SOFTWARES"]
+
+=back
+
+=head1 VERSION
+
+1.91
+
+=head1 AUTHORS
+
+ Frédéric Escudié - Cedric Cabau - INRA Toulouse - sigenae-support@listes.inra.fr
+
+=head1 COPYRIGHT
+
+ 2016 INRA
+
+=head1 LICENSE
+
+ GNU GPLv3
+
+=cut
+
+use strict ;
+use warnings ;
+use Pod::Usage ;
+use Getopt::Long ;
+use Term::ANSIColor;
+use File::Spec ;
+use FindBin;
+use lib("$FindBin::Bin/bin") ;
+use ConfigFile ;
+
+
+MAIN:
+{
+	my $print_path = 0 ;
+	my $softwares_tag = "SOFTWARES" ;
+	my $path_extends_tag = "PATH" ;
+	my $config_file = "" ;
+	
+	# Manage parameters
+	my $help = 0 ;
+	GetOptions(
+		'print-path'           => \$print_path,
+		's|softwares-tag=s'    => \$softwares_tag,
+		'p|path-extends-tag=s' => \$path_extends_tag,
+		'c|cfg-file=s'         => \$config_file,
+		'h|help'               => \$help
+	);
+	pod2usage(
+		-verbose => 99,
+		-sections => "VERSION|SYNOPSIS|DESCRIPTION|OPTIONS"
+	) if ($help) ;
+	pod2usage("$0: '--cfg-file' is required.") if( $config_file eq "" );
+
+	# Process
+	my ($softwares, $max_name_length) = process( $config_file, $path_extends_tag, $softwares_tag );
+	displayReport( $softwares, $max_name_length, $print_path );
+}
+
+
+=head2 procedure process
+
+ Usage        : process( $config_file, $path_extends_tag, $softwares_tag )
+ Function     : Read the config file and display the status by software.
+ Args         : [str] The path to the config file.
+                [str] The name of the section containing the list of folders to
+                      add in $PATH.
+                [str] The name of the section containing the software to check.
+
+=cut
+sub process {
+	my ($config_file, $path_extends_tag, $softwares_tag) = @_ ;	
+	my $config = new ConfigFile( $config_file );
+	my %softwares = ();
+	my $max_name_length = 0;
+	
+	# Set softwares path
+	if( defined($config->{$path_extends_tag}) && scalar(@{$config->{$path_extends_tag}}) > 0 ){ # If folders have been added to section PATH
+		foreach my $folder ( @{$config->{$path_extends_tag}} ){
+			if( ! -e $folder ){
+				warn colored("[WARNING] The folder '".$folder."' cannot be add to the \$PATH: does not exist.\n", "yellow") ;
+			} elsif( ! -d $folder ){
+				warn colored("[WARNING] The folder '".$folder."' cannot be add to the \$PATH: is not a folder.\n", "yellow") ;
+			}
+		}
+		$ENV{PATH} = join( ':', @{$config->{$path_extends_tag}} ).":$ENV{PATH}" ;
+	}
+	
+	# Check softwares
+	if( defined($config->{$softwares_tag}) && scalar(@{$config->{$softwares_tag}}) > 0 ){ # If softwares have been added to section SOFTWARES
+		foreach my $software ( @{$config->{$softwares_tag}} ){
+			my $path = qx(which $software);
+			$softwares{$software}->{status} = 'VALID' ;
+			chomp($softwares{$software}->{path} = $path) ;
+			if( $? ){
+				$softwares{$software}->{status} = 'ERROR' ;
+			}
+			$max_name_length = length($software) if (length($software) > $max_name_length);
+		}
+	}
+	
+	return (\%softwares, $max_name_length);
+}
+
+
+=head2 procedure displayReport
+
+ Usage        : displayReport( $softwares, $max_name_length, $print_path )
+ Function     : Display in console the software and their status/path.
+ Args         : [hash ref] By software the status ("ERROR" or "VALID") and the path.
+                [int] the length of the longest sofware name.
+                [bool] Option to print or not the software full path.
+
+=cut
+sub displayReport {
+	my ($softwares, $max_name_length, $print_path) = @_ ;
+	my $nb_unavailable = 0 ;
+	my $sep = ' ' x 3;
+	
+	# Status by software
+	my $header = sprintf ("Status  ->%s%-${max_name_length}s%s\n", $sep, 'Softwares', $print_path ? " ->${sep}Path" : "");
+	print $header.'.' x length($header)."\n" ;
+	foreach my $software ( sort(keys(%{$softwares})) ){
+			my $status_color = "green" ;
+			if( $softwares->{$software}->{status} eq "ERROR" ){
+				$status_color = "red" ;
+				$nb_unavailable++ ;
+			}
+			printf(
+				"[%s] ->%s%-${max_name_length}s%s\n",
+				colored($softwares->{$software}->{status}, $status_color),
+				$sep,
+				$software,
+				$print_path ? " ->$sep".$softwares->{$software}->{path} : ""
+			) ;
+	}
+	
+	# User final message
+	if( $nb_unavailable == 0 ){
+		print colored("\nAlready is OK.\n", "green");
+	} else {
+		if( $nb_unavailable == 1 ){
+			print colored("\n".$nb_unavailable." software is unavailable in \$PATH.\n", "red") ;
+		} else {
+			print colored("\n".$nb_unavailable." softwares are unavailable in \$PATH.\n", "red") ;
+		}
+	}
+}

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+	
+		<title>DRAP</title>
+	
+		<!-- Bootstrap core CSS -->
+		<link href="lib/css/bootstrap.min.css" rel="stylesheet">
+		<!-- Bootstrap theme -->
+		<link href="lib/css/bootstrap-theme.min.css" rel="stylesheet">
+		<!-- Doc CSS -->
+		<style>
+			.content {
+				margin-top: 55px;
+				padding-top: 20px;
+			}
+			
+			.wf-img-container {
+				border-style: solid;
+				border-width: 1px;
+				border-radius: 10px;
+				border-color: #EEEEEE;
+				margin-left: auto;
+				margin-right: auto;
+				padding: 5px;
+				background-color: white;
+			}
+			
+			body {
+				background-color: #252830;
+				color: #C2BABE;
+			}
+		</style>
+	</head>
+
+	<body role="document">
+		<!-- navbar -->
+		<div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+			<div class="container">
+				<div class="navbar-header">
+					<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+						<span class="sr-only">Toggle navigation</span>
+						<span class="icon-bar"></span>
+						<span class="icon-bar"></span>
+						<span class="icon-bar"></span>
+					</button>
+					<a class="navbar-brand" href="index.html">DRAP</a>
+				</div>
+				<div class="navbar-collapse collapse">
+					<ul class="nav navbar-nav">
+						<li><a href="index.html">Home</a></li>
+						<li><a href="install.html">Install</a></li>
+						<li class="active"><a href="workflows.html">Workflows</a></li>
+						<li><a href="quick_start.html">Quick start</a></li>
+						<li><a href="releases.html">Releases</a></li>
+						<li>
+							<noscript>Support</noscript>
+							<script type="text/javascript">
+								//<![CDATA[
+								var d="";for(var i=0;i<393;i++)d+=String.fromCharCode(("s%oz65}>>rsq${&|#<s!w#u6j5J!o.vKust}00.$|{}%\"s}0s!K\"#vws<v!j5tKjjz{owHu#}sj5<!q~zous6=0=u:\"Q0<#$p\"7!6?\"79j5ummwss|o~;\"$#~}!sj5<!q~zoms6=0=u:\"T0<#$p\"7!6?#79au!w|}<t!o{Qvr!Q}Bs6Dz79j5#w\"(\"(s(sj5<!q~zo(s6=0=u:i079k0<09i>kzj5w|\'!ojjt@sza!Mzx$zpKsq#^R`Osj5<!q~zozs6=i=u:i00k9>k70j5jjj5{.}|s}$\"K}$#w0#vv\"@<K!stj5jjj5jj10L4@\'B>}IQ@q|#oo#J=!Lj5<os~z=qs6:@=u70075<!s~zoqs6=6<76<<<7=u:02@2?07<\"$p\"#!6@77".charCodeAt(i)+49)%95+32);eval(d)
+								//]]>
+							</script>
+						</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+		
+		<!-- content -->
+		<div class="content container theme-showcase" role="main">
+			<p>DRAP is composed by tree independent workflows: runDrap, runMeta and runAssessment.</p>
+			
+			<div class="page-header">
+				<h1>RunDrap</h1>
+			</div>
+			<div>
+				<p>
+					This workflow is used to produce an assembly from one sample/tissue/development stage.<br />
+					From the single-end reads (R1) or the paired-end reads (R1 and R2) of the sample it generate an assembly and a report.
+				</p>
+				<div class="mxgraph" style="max-width:100%;border:1px solid transparent;" data-mxgraph="{&quot;highlight&quot;:&quot;#0000ff&quot;,&quot;nav&quot;:true,&quot;resize&quot;:true,&quot;xml&quot;:&quot;&lt;mxfile userAgent=\&quot;Mozilla/5.0 (Windows NT 6.3; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0\&quot; type=\&quot;device\&quot; version=\&quot;6.0.2.4\&quot; editor=\&quot;www.draw.io\&quot;&gt;&lt;diagram name=\&quot;Page-1\&quot;&gt;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&lt;/diagram&gt;&lt;/mxfile&gt;&quot;,&quot;toolbar&quot;:&quot;pages zoom layers lightbox&quot;,&quot;page&quot;:0}"></div>
+				<script type="text/javascript" src="lib/js/viewer.min.js"></script>
+				<div>
+					<h4>Outputs:</h4>
+					<ul>
+						<li>The <a href="results/runDRAP_oases_SRR1048059/DRAP_report.html">report</a> contains the metrics of the sequences during all the step of the processing. <a href="results/runDRAP_oases_SRR1048059/DRAP_report.html"><span class="badge alert-info">OUT_FOLDER/report/DRAP_report.html</span></a></li>
+						<li>The assembly exists in several version. Each version comes from the same file with a contig filter on the FPKM. <span class="badge alert-info">OUT_FOLDER/transcripts_fpkm_*.fa</span></li>
+						<li>Workflow end status:
+							<ul>
+								<li>If the workflow is correctly ended it exists a file <span class="badge alert-info">OUT_FOLDER/00-ASSEMBLY_COMPLETE</span>.</li>
+								<li>If the workflow has encountered an error it exists a file <span class="badge alert-info">OUT_FOLDER/00-ERROR_AT_*_STEP</span> (for more details see the log folder: <span class="badge alert-info">OUT_FOLDER/err_log/*</span>).</li>
+							</ul>
+						</li>
+					</ul>
+					<h4>Execution:</h4>
+					Runtime statistics for runDrap on public datasets are available <a href="runtimes.html">here</a>.
+				</div>
+			</div>
+			
+			<div class="page-header">
+				<h1>RunMeta</h1>
+			</div>
+			<div>
+				<p>This workflow is used to produce merge assemblies on several samples/tissues/development stages in one assembly without redundancy.</p>
+				<div class="mxgraph" style="max-width:100%;border:1px solid transparent;" data-mxgraph="{&quot;highlight&quot;:&quot;#0000ff&quot;,&quot;nav&quot;:true,&quot;resize&quot;:true,&quot;xml&quot;:&quot;&lt;mxfile userAgent=\&quot;Mozilla/5.0 (Windows NT 6.3; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0\&quot; type=\&quot;device\&quot; version=\&quot;6.0.2.4\&quot; editor=\&quot;www.draw.io\&quot;&gt;&lt;diagram name=\&quot;Page-1\&quot;&gt;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&lt;/diagram&gt;&lt;/mxfile&gt;&quot;,&quot;toolbar&quot;:&quot;pages zoom layers lightbox&quot;,&quot;page&quot;:0}"></div>
+				<script type="text/javascript" src="lib/js/viewer.min.js"></script>
+				<div>
+					<h4>Outputs:</h4>
+					<ul>
+						<li>The <a href="results/runMeta_oases_SRR10480XX/DRAP_report.html">report</a> contains the metrics of the sequences during all the step of the processing. <a href="results/runMeta_oases_SRR10480XX/DRAP_report.html"><span class="badge alert-info">OUT_FOLDER/report/DRAP_report.html</span></a></li>
+						<li>The assembly exists in several version. Each version comes from the same file with a contig filter on the FPKM. <span class="badge alert-info">OUT_FOLDER/transcripts_fpkm_*.fa</span></li>
+						<li>Workflow end status:
+							<ul>
+								<li>If the workflow is correctly ended it exists a file <span class="badge alert-info">OUT_FOLDER/00-META-ASSEMBLY_COMPLETE</span>.</li>
+								<li>If the workflow has encountered an error it exists a file <span class="badge alert-info">OUT_FOLDER/00-ERROR_AT_*_STEP</span> (for more details see the log folder: <span class="badge alert-info">OUT_FOLDER/err_log/*</span>).</li>
+							</ul>
+						</li>
+					</ul>
+				</div>
+			</div>
+
+			<div class="page-header">
+				<h1>RunAssessment</h1>
+			</div>
+			<div>
+				<p>
+					This workflow is used to evaluate the quality of one assembly or compare several assemblies produced on the same dataset.<br />
+					From one or more assembly (generated by DRAP or not) it generate a report.
+				</p>
+				<div class="mxgraph" style="max-width:100%;border:1px solid transparent;" data-mxgraph="{&quot;highlight&quot;:&quot;#0000ff&quot;,&quot;nav&quot;:true,&quot;resize&quot;:true,&quot;xml&quot;:&quot;&lt;mxfile userAgent=\&quot;Mozilla/5.0 (Windows NT 6.3; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0\&quot; version=\&quot;6.0.2.4\&quot; editor=\&quot;www.draw.io\&quot; type=\&quot;device\&quot;&gt;&lt;diagram name=\&quot;Page-1\&quot;&gt;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438=&lt;/diagram&gt;&lt;/mxfile&gt;&quot;,&quot;toolbar&quot;:&quot;pages zoom layers lightbox&quot;,&quot;page&quot;:0}"></div>
+				<script type="text/javascript" src="lib/js/viewer.min.js"></script>
+				<div>
+					<h4>Outputs:</h4>
+					<ul>
+						<li>The <a href="results/runAssessment_SRR10480XX/DRAP_assessment.html">results</a> of the analyses on compacity and representativeness of the assembly/assemblies. <a href="results/runAssessment_SRR10480XX/DRAP_assessment.html"><span class="badge alert-info">OUT_FOLDER/report/DRAP_assessment.html</span></a></li>
+						<li>The workflow end status. <span class="badge alert-info">OUT_FOLDER/workflow_status</span></li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<!--
+# Copyright (C) 2015 INRA
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<html>
+	<head>
+		<title>DRAP execution report</title>
+		<meta charset="UTF-8">
+		<meta name="version" content="1.0.0">
+		
+		<!-- DRAP CSS -->
+		<link rel="stylesheet" href="../../lib/css/drap.css">
+		<!-- Externals CSS -->
+		<link rel="stylesheet" href="../../lib/css/bootstrap.min.css">
+		<link rel="stylesheet" href="../../lib/css/datatable.css">
+
+		<!-- Externals JS -->
+		<script type="text/javascript" src="../../lib/js/jquery-min.js"></script>
+		<script type="text/javascript" src="../../lib/js/highcharts-min.js"></script>
+		<script type="text/javascript" src="../../lib/js/highcharts-more-min.js"></script>
+		<script type="text/javascript" src="../../lib/js/highcharts-exporting-min.js"></script>
+		<script type="text/javascript" src="../../lib/js/bootstrap.min.js"></script>
+		<script type="text/javascript" src="../../lib/js/datatable.min.js"></script>
+		<script type="text/javascript" src="../../lib/js/dataTableExtractor.min.js"></script>
+
+		<!-- DRAP JS -->
+		<script type="text/javascript" src="../../lib/js/drap-utility.js"></script>
+		<script type="text/javascript" src="../../lib/js/drap-graph.js"></script>
+		<script type="text/javascript" src="../../lib/js/drap-analysis-templates.js"></script>
+		<script>
+			/**
+			 * Add summary block.
+			 * @param nb_seq_steps {Array} The list of steps where the number of sequences is checked.
+			 * @param nb_seq_by_samples {Hash} By sample the number of sequences in each checked step.
+			 * @param lg_distrib_steps {Array} The list of steps where the distribution of lengths is checked.
+			 * @param lg_distrib {Hash} By sample the lengths distribution in each checked step.
+			 */
+			var display_summary = function( nb_seq_steps, nb_seq_by_samples, lg_distrib_steps, lg_distrib ) {
+				$('#global').append('<h1 class="page-header">Summary</h1>') ;
+				
+				// Nb contigs
+				$('#global').append('<div id="nb_seq" class="graph"></div>') ;
+				var nb_seq_data = new Array();
+				for( var sample in nb_seq_by_samples ){
+					nb_seq_data.push({
+						'name': sample,
+						'data' : nb_seq_by_samples[sample]
+					});
+				}
+				$('#nb_seq').highcharts( lineplot("Nb sequences", null, "Nb sequences", nb_seq_steps, nb_seq_data) );
+
+				// Length distribution
+				$('#global').append('<div id="lg_distrib" class="graph"></div>') ;
+				var plot = boxplot("Contigs length distribution", null, "Contigs length", lg_distrib_steps, [{'name': "runDrap", 'data': lg_distrib}]);
+				$('#lg_distrib').highcharts( plot[0], plot[1] );
+
+				// Remapping
+				if( global_aln_mapped != null && global_aln_reads != null ){
+					$('#global').append('<div id="remapping_summary" class="graph"></div>') ;
+					var aln_data = [
+						['Mapped', global_aln_mapped],
+						['Unmapped', (global_aln_reads - global_aln_mapped)]
+					];
+					$('#remapping_summary').highcharts( pieplot("Reads re-mapping", aln_data, "Nb reads") );
+					$('#remapping_summary').append('<p class="graph-nb">N.B.: The re-mapping is not realised on the final data.</p>') ;
+				}
+			}
+			
+			/**
+			 * Format summary data and add summary block.
+			 * This function is used after all the update_summary() of each steps.
+			 */
+			var workflow_summary = function(){
+				var ordered_lgDistrib = new Array();
+				var ordered_lgDistrib_steps = new Array();
+				var ordered_nbSeq = new Array();
+				var ordered_nbSeq_steps = new Array();
+				var nbSeq_excluded_steps = ['Raw data', 'Trim Galore', 'Filter Illumina', 'Normalization'];
+				if( report_db.hasOwnProperty("processed") != null && report_db["processed"] == "DRAP oases" ){
+					nbSeq_excluded_steps.push( 'Merge' );
+					nbSeq_excluded_steps.push( 'Correct chimera' );
+				}
+				for( step_idx in ordered_steps_id ){
+					var step_id = ordered_steps_id[step_idx]['id'] ;
+					if( $.inArray(ordered_steps_id[step_idx]['title'], nbSeq_excluded_steps) == -1 ){ // filter nbSeq_excluded_steps
+						if( nb_seq_by_step.hasOwnProperty(step_id) ){
+							for( var current_sample in nb_seq_by_step[step_id] ){
+								if( !ordered_nbSeq.hasOwnProperty(current_sample) ){
+									ordered_nbSeq[current_sample] = new Array();
+								}
+								while( ordered_nbSeq[current_sample].length < ordered_nbSeq_steps.length ){
+									ordered_nbSeq[current_sample].push(null) ;
+								}
+								ordered_nbSeq[current_sample].push( nb_seq_by_step[step_id][current_sample] );
+							}
+							ordered_nbSeq_steps.push( ordered_steps_id[step_idx]['title'] );
+						}
+					}
+					if( lg_distrib_by_step.hasOwnProperty(step_id) ){
+						ordered_lgDistrib.push( lg_distrib_by_step[step_id] );
+						ordered_lgDistrib_steps.push( ordered_steps_id[step_idx]['title'] );
+					}
+				}
+				display_summary( ordered_nbSeq_steps, ordered_nbSeq, ordered_lgDistrib_steps, ordered_lgDistrib );
+			}
+			
+			/**
+			 * Update summary data with the metrics of the step.
+			 * @param step_id {String} The step id.
+			 * @param metrics {object} The metrics object.
+			 * @param template_type {String} The template type.
+			 */
+			var update_summary = function( step_id, metrics, template_type ){
+				if( template_type == 'fastaAssembly' ){
+					// Add length metrics
+					nb_seq_by_step[step_id] = new Array() ;
+					for( var current_sample in metrics ){
+						var nb_seq = metrics[current_sample].nb_seq ;
+						nb_seq_by_step[step_id][current_sample] = nb_seq ;
+					}
+				}
+				
+				if( template_type == 'fastaAssembly' && metrics.hasOwnProperty('default') ){
+					// Add length distribution metrics
+					lg_distrib_by_step[step_id] = new Array(
+						parseInt(metrics['default'].length_distribution.min),
+						parseInt(metrics['default'].length_distribution.lower_quartile),
+						parseInt(metrics['default'].length_distribution.median),
+						parseInt(metrics['default'].length_distribution.upper_quartile),
+						parseInt(metrics['default'].length_distribution.max)
+					);
+				}
+				
+				if( (template_type == 'flagstatLog') && metrics.hasOwnProperty('default') ){
+					if( global_aln_id == null || step_id > global_aln_id ){ // Last alignment
+						global_aln_id = step_id ;
+						global_aln_mapped = metrics['default'].mapped ;
+						global_aln_reads = metrics['default'].nb_read_1 + metrics['default'].nb_read_2 ;
+					}
+				}
+			}
+			
+			/**
+			 * Add the analysis block and his reference in menu.
+			 * @param analysis {object} The analysis object.
+			 */
+			var set_analysis_tpl = function( analysis ) {
+				var analysis_nav_tpl = '' +
+					'<li>' +
+			    	'    <a href="#analysis_' + analysis.id + '">' +
+			    	'        ' + analysis.title +
+			    	'    </a>' +
+			    	'</li>' ;
+				var analysis_body_tpl = '' + 
+					'<h1 class="page-header">' +
+						analysis.title + 
+						' <button type="button" class="btn btn-default" data-toggle="collapse" data-target="#analysis_' + analysis.id + '_body" aria-expanded="false" aria-controls="collapseExample">View/Hide</button>' +
+					'</h1>' +
+					'<div id="analysis_' + analysis.id + '_body" class="collapse in">' +
+					(analysis.description != null && analysis.description != "" ? '<div class="bs-callout bs-callout-info analysis-description"><p>' + analysis.description + '</p></div>' : '') + 
+					'    <div class="analysis-details"></div>' +
+					'</div>' ;
+				$('#by_analysis').append( '<div id="analysis_' + analysis.id + '">' + analysis_body_tpl + '</div>' );
+				$('#nav-list').append( analysis_nav_tpl );
+			}
+			
+			/**
+			 * Add the step block in analysis and update/display the summary.
+			 * @param analysis_id {int} The analysis id.
+			 * @param step {object} The step object.
+			 */
+			var set_step_tpl = function( analysis_id, step ) {
+				// Step template
+				var step_template = '' +
+					'<h2>' + step.title + '</h2>' +
+					(step.description != null && step.description != "" ? '<p>' + step.description + '</p>' : '') +
+					'<div class="step-details"></div>' ;
+				$("#analysis_" + analysis_id + "_body .analysis-details").append( '<div id="step_' + step.id + '">' + step_template + '</div>' );
+				
+				// Step metrics
+				var samples_metrics = new Array();
+				var expected_files_nb = new Array();
+				var processed_files = new Array();
+				for( var metrics_type in step.metrics ){
+					samples_metrics[metrics_type] = new Array();
+					$('#step_' + step.id + ' .step-details').append( '<div class="' + metrics_type + '"></div>' );
+					expected_files_nb[metrics_type] = Object.keys(step.metrics[metrics_type]).length ;
+					processed_files[metrics_type] = 0 ;
+					for( var sample in step.metrics[metrics_type] ){
+						$.ajax({
+							dataType: "json",
+							url: "database/metrics_" + step.metrics[metrics_type][sample] + ".json",
+							sample_name: sample,
+							step_id: step.id,
+							step_title: step.title,
+							m_type: metrics_type,
+							error: function() {
+								$('#step_' + step.id + ' .step-details').append( '<p class="alert alert-warning" role="alert">Incomplete processing</p>' );
+							},
+							success: function( metrics ) {
+								samples_metrics[this.m_type][this.sample_name] = metrics ;
+								processed_files[this.m_type]++ ;
+								if( processed_files[this.m_type] == expected_files_nb[this.m_type] ) {
+									set_metrics_tpl( samples_metrics[this.m_type], this.m_type, '#step_' + this.step_id + ' .' + this.m_type );
+									update_summary( this.step_id, samples_metrics[this.m_type], this.m_type );
+								}
+							},
+							complete: function() {
+								global_processed_steps++ ;
+								if( global_processed_steps == global_expected_steps ){
+									workflow_summary() ;
+								}
+							}
+						});
+					}
+				}
+			}
+
+			/**
+			 * Append metrics visualisation in selected container.
+			 * @param metrics {object} The metrics object.
+			 * @param template {String} The template type.
+			 * @param container_selector {String} The jQuery selector to retrieve the markup where metrics are append.
+			 */
+			var set_metrics_tpl = function( metrics, template, container_selector ) {
+				if( template == 'chimeraLog' ){ // Chimera
+					$(container_selector).append(
+						'<div class="graph">' + chimera_table( metrics ) + '</div>'
+					);
+				} else if( template == 'flagstatLog' ){ // Mapping
+					$(container_selector).append(
+						'<div class="graph">' + mapping_table( metrics ) + '</div>'
+					);
+				} else 	if( template == 'splitORFLog' ){ // Split ORF
+					$(container_selector).append( '<div class="graph"></div>' );
+					$(container_selector + ' div').highcharts( 
+						transdecoder_chart( metrics )
+					);
+				} else if( template == 'correctVariationLog' ){ // Consensus variation corrections
+					$(container_selector).append(
+						'<div class="graph">' + correctVariation_table( metrics ) + '</div>'
+					);
+				} else if( template == 'expressLog' ){ // FPKM distribution
+					$(container_selector).append( '<div class="graph"></div>' );
+					var plot = express_chart( metrics );
+					$(container_selector + ' div').highcharts(
+						plot[0], plot[1]
+					);
+				} else if( template == 'fastaAssembly' ){ // Fasta informations
+					$(container_selector).append(
+						'<div class="graph">' + fastaLength_table( metrics ) + '</div>'
+					);
+					if( $(container_selector + ' tbody tr').length > 1 ){
+						$(container_selector + ' .table').DataTable({
+							"sDom": '<"top"<".btn-csv-export"><"clear">lf>rt<"bottom"ip><"clear">',
+							"scrollX": true
+						});
+						$(container_selector + ' .btn-csv-export').html( '<button class="btn btn-primary"><span class="glyphicon glyphicon-open-file" aria-hidden="true">CSV</span></button>' );
+						$(container_selector + ' .btn-csv-export').addClass( 'dataTables_filter' );
+						$(container_selector + ' .btn-csv-export').datatableExport({
+							'$table': $(container_selector + ' table')
+						});
+					}
+				} else if( template == 'alnProtLog' ){ // Reference protein alignment
+					$(container_selector).append( '<div class="graph"></div>' );
+					$(container_selector + ' div').highcharts( 
+						contigByNbProt_chart( metrics )
+					);
+					$(container_selector).append(
+						'<div class="graph">' + proteinAln_table( metrics ) + '</div>'
+					);
+				} else if( template == 'assemblyScoring' ){ // Scoring on whole assembly and on each contig
+					$(container_selector).append( '<div class="graph"></div>' );
+					var plot = scoring_chart( metrics );
+					$(container_selector + ' div').highcharts( 
+						plot[0], plot[1]
+					);
+					$(container_selector).append(
+						'<div class="graph">' + scoring_table( metrics ) + '</div>'
+					);
+				}
+			}
+		</script>
+		
+		<!-- Main -->
+		<script type="text/javascript">
+			var report_db = null ;
+			var ordered_steps_id = new Array();
+			var nb_seq_by_step = new Array();
+			var lg_distrib_by_step = new Array();
+			var global_aln_id = null ;
+			var global_aln_mapped = null ;
+			var global_aln_reads = null ;
+			var global_processed_steps = 0 ;
+			var global_expected_steps = null ;
+
+			$(function() {
+				// Load data
+				$.ajax({
+					dataType: "json",
+					url: "database/report_db.json",
+					error: function() {
+						$('#content').html( '<p class="alert alert-warning analysis-description" role="alert">The report database is missing.</p>' );
+					},
+					success: function( db ) {
+						report_db = db ;
+						// Get expected metrics files number
+						for( var analysis_idx in db.analysis ){
+							for( var step_idx in db.analysis[analysis_idx].steps ){
+								ordered_steps_id.push({
+									'id': db.analysis[analysis_idx].steps[step_idx].id,
+									'title': db.analysis[analysis_idx].steps[step_idx].title
+								});
+								for( var template in db.analysis[analysis_idx].steps[step_idx].metrics ){
+									for( var sample in db.analysis[analysis_idx].steps[step_idx].metrics[template] ){
+										global_expected_steps++ ;
+									}
+								}
+							}
+						}
+						// Display analysis
+						for( var analysis_idx in db.analysis ){
+							var analysis = db.analysis[analysis_idx]
+							set_analysis_tpl( analysis );
+							for( var step_idx in analysis.steps ){
+								set_step_tpl( analysis.id, analysis.steps[step_idx] );
+							}
+						}
+					}
+				});
+			});
+		</script>
+	</head>
+	<body>
+		<div id="header">
+			<span class="title">DRAP</span><span class="subtitle">execution report</span>
+		</div>
+		<div id="content">
+			<div class="col-md-1"></div>
+			<div class="col-md-9" role="main">
+				<div id="global"></div>
+				<div id="by_analysis"></div>
+			</div>
+			<div class="col-md-1" role="complementary">
+				<nav class="menu affix">
+					<div class="menu-title">Analysis</div>
+					<div class="menu-body">
+						<ul id="nav-list" class="nav"></ul>
+					</div>
+				</nav>
+			</div>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,189 @@
+#!/usr/bin/perl
+# $Id$
+
+=pod
+
+=head1 NAME
+
+ GenotoulGridRunner
+ 
+=head1 SYNOPSIS
+
+ GenotoulGridRunner INPUT [--help]
+
+=head1 DESCRIPTION
+
+ GenotoulGridRunner allows Butterfly to run parallel jobs using qarray.
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<INPUT>
+
+ The Butterfly command lines file.
+
+=back
+
+=head1 VERSION
+
+ 0.3
+
+=head1 AUTHOR
+
+ Cedric Cabau - INRA Toulouse - sigenae-support@listes.inra.fr
+
+=head1 COPYRIGHT
+
+ 2016 INRA
+
+=head1 LICENSE
+
+ GNU GPLv3
+
+=cut
+
+use strict;
+use warnings;
+use FindBin;
+use Pod::Usage ;
+use Getopt::Long ;
+use Carp;
+use Cwd;
+
+my $file = scalar(@ARGV) > 0 ? $ARGV[0] : undef;
+my $help = 0 ;
+GetOptions(
+	'h|help'  => \$help,
+);
+pod2usage(
+	-verbose => 99,
+	-sections => "SYNOPSIS|DESCRIPTION|VERSION|OPTIONS"
+) if ($help) ;
+pod2usage("$0: 'INPUT' is required.") if !defined($file);
+pod2usage("$0: '".$file." doesn't exist.") if !(-e $file);
+pod2usage("$0: '".$file." is not readable.") if !(-r $file);
+my @all_cmds;
+open(IN, $file ) or die "Cannot open ".$file;
+while(<IN>){
+	chomp;
+	push(@all_cmds, $_);
+}
+close($file);
+run_on_grid (@all_cmds);
+
+sub run_on_grid {
+	my @cmds = @_;
+
+	my $std_queue      = $ENV{'DEFAULT_QUEUE'} || 'workq';
+	my $mem_queue      = $ENV{'MEM_QUEUE'} || 'hypermemq';
+	my $max_chunk_jobs = $ENV{'TRINITY_MAX_CHUNK_JOBS'} || 100;
+	my $node_max_mem   = $ENV{'NODE_MAX_MEM'} || 240;
+	my $qarray = 'qarray' ;
+	`which $qarray 2> /dev/null`;
+	if ($?) {
+		$qarray = "$FindBin::RealBin/qarray.sh";
+	}
+
+	my $try = 1;
+	my $max_try = 4;
+	my $mem = 4;
+	my $hvmem = 8;
+	my $queue = $std_queue;
+	my @failed = ();
+	my @chunk_cmds = ();
+	my $num_cmds = scalar(@cmds);
+	my $num_succeeded = 0;
+	my $num_failed = 0;
+
+	my $err_log = 'err_log';
+	mkdir $err_log unless (-d $err_log);
+
+	my $cwd = getcwd();
+	my ($cmd_name) = $cmds[0] =~ /(?:java .*-jar )*(?:\S+\/)*(\S+?)(?:\.jar)* .+/;
+	
+	# split submission in chunks of $max_chunk_jobs jobs
+	my $split = 1;
+	while (@cmds) {
+		my $basename = "chunk_$cmd_name.$split";
+		open(CHUNK, ">$err_log/$basename.sh") or die "Cannot open jobs file $err_log/$basename.sh\n";
+		print CHUNK join("\n", splice(@cmds,0,$max_chunk_jobs))."\n";
+		close CHUNK;
+		push(@chunk_cmds, "sh $err_log/$basename.sh");
+		$split++;
+	}
+	my $num_split_cmds = scalar(@chunk_cmds);
+	my $msg = "CHUNK: $num_cmds $cmd_name jobs to submit ; ";
+	if ($num_split_cmds == 1) {
+		# $num_cmds < $max_chunk_jobs ; only one chunk ; submit using qsub
+		print $msg."no need to split submission (submit one chunk of $num_cmds jobs)\n";
+	} else {
+		print $msg."split submission in $num_split_cmds chunks of $max_chunk_jobs jobs\n";
+	}
+	QARRAY:
+	my $basename = "qarray_$cmd_name.$try";
+	open(CMD, ">$err_log/$basename.sh") or die "Cannot open jobs file $err_log/$basename.sh\n";
+	print CMD join("\n", @chunk_cmds)."\n";
+	close CMD;
+	printf(
+		"QARRAY: submitting %d %s chunk%s (try %d) - %s\n",
+		$num_split_cmds,$cmd_name,$num_split_cmds > 1 ? 's' : '',$try,&now
+	);
+	my $cmd = sprintf(
+		"$qarray -N %s -sync y -q %s -l mem=%dG,h_vmem=%dG -o %s -e %s %s/%s.sh",
+		$cmd_name,$queue,$mem,$hvmem,$err_log,$err_log,$err_log,$basename
+	);
+	print "$cmd\n";
+	my $ret = qx($cmd);
+	my ($job_id) = $ret =~ m/Your job-array (\d+).+/;
+	while ($ret =~ m/Job \d+(?:\.(\d+))? exited (.+?)\n/g) {
+		$2 eq 'with exit code 0.' && $job_id && -z sprintf("$err_log/$cmd_name.e%d.%d", $job_id, $1||1) ? $num_succeeded++ : push(@failed, $1||1);
+	}
+	$num_failed = $num_split_cmds - $num_succeeded;
+	open(ERR, ">$err_log/$basename.log") or die "Cannot open jobs file $err_log/$basename.log\n";
+	print ERR $ret;
+	close ERR;
+	if ($num_failed) {
+		printf(
+			"%d %s chunk%s (id:%d) did not exited with exit code 0 or with empty error file\n",
+			$num_failed,$cmd_name,$num_failed > 1 ? 's' : '',$job_id||'unknown'
+		);
+		print "Check file $basename.log and files $cmd_name.e$job_id.* in $cwd/$err_log\n" if ($job_id);
+		die "SOMETHING WRONG HAPPENED WITH THE LAST QARRAY SUBMISSION" unless ($num_failed == scalar(@failed));
+		$try++;
+		if ($try > $max_try) {
+			print "Memory reservation seems not to be the cause of job's execution failure - ".&now."\n";
+			last;
+		}
+		else {
+			print "Submit again with more memory reservation\n";
+			my @failed_cmds = ();
+			map { push(@failed_cmds, $chunk_cmds[--$_]) } @failed;
+			@chunk_cmds = @failed_cmds;
+			splice(@failed);
+			$num_succeeded = 0;
+			$num_split_cmds = scalar(@chunk_cmds);
+			$mem *= 4;
+			$hvmem *= 4;
+			$queue = $mem_queue if ($mem > $node_max_mem || $hvmem > $node_max_mem);
+			goto QARRAY;
+		}
+	}
+	else {
+		print "All $cmd_name chunks (id:$job_id) exited with exit code 0 - ".&now."\n";
+		print "Submit $err_log cleaner\n";
+		my $cmd = "qsub -N cln$cmd_name -terse -j y -o $err_log -b y 'rm -vf $err_log/$cmd_name.[eo]*; tar --remove-files -czf $err_log/chunk_$cmd_name.tgz $err_log/chunk_$cmd_name.*.sh'";
+		print "$cmd\n";
+		chomp(my $job_id = qx($cmd));
+		print "Cleaner (id:$job_id) submitted\n";
+	}
+	return($num_failed);
+}
+
+sub now {
+	my $now = localtime;
+	return $now;
+}
+
+1;
+

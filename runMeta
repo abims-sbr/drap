@@ -1,0 +1,731 @@
+#!/usr/bin/perl
+
+use strict;
+use Pod::Usage;
+use Getopt::Long;
+use FindBin;
+use File::Basename;
+use File::Compare;
+use File::Path qw(make_path remove_tree);
+use POSIX qw(strftime);
+use lib ("$FindBin::RealBin/bin");
+use AsmUtils;
+use Report;
+
+my @backup_options = @ARGV;
+
+#------------------------------------------------------------
+# options and parameters
+#------------------------------------------------------------
+# Options definitions (name,format,default,required)
+my @getOptions = ( 
+	['help',undef,undef,0],
+	['o|outdir','s',undef,1], 						# DIRECTORY Ouput directory
+	['drap-dirs','s{,}',undef,0], 					# DRAP DIRECTORIES
+	['input-type','s','transcripts',0],				# Primary assembly target type [transcripts]
+	['input-cov','i',undef,0],						# Primary assembly target coverage [lowest coverage value]
+	['s|strand','s',undef,0],						# For strand specific sequencing data: FR or RF for paired reads; F or R for single 	
+	['a|ref','s',undef,0],							# FASTA reference file
+	['y|filter',undef,undef,0],						# Filter Casava-filtered sequences
+	['r|mapper','s','bwa',0],						# Mapper performing RMBT step (star or bwa) [bwa]
+	['t|type','s','orf',0],    						# Length filter target: contig or orf [orf]
+	['l|length','i',200,undef,0],					# Length filter cutoff in nucleotides [200]
+	['v|coverage','s','1,3,5,10',undef,0],			# FPKM values used as coverage cutoff [1,3,5,10]
+	['no-rate',undef,undef,0],						# Do not perform assembly rating
+	['optimize',undef,undef,0],						# Apply the transrate optimization procedure on the assembly filtered with the lowest FPKM value
+	['exonerate',undef,undef,0],					# Only align reference using exonerate
+	['blat',undef,undef,0],							# Only align reference using blat
+	['write',undef,undef,0],						# Only write job submission files
+	['run',undef,undef,0],							# Only run writen job submission files
+	['cfg-file','s',undef,0],						# Allow user to define his own configuration file
+	['local',undef,undef,0],						# Execute jobs on local machine
+	['no-qacct',undef,undef,0]						# no qacct request during assembly checking
+);
+
+# defaults values
+my $opt = {};
+my $required = {};
+map { $opt->{$_->[0]} = defined($_->[1]) && $_->[1] =~ /@|{.+}/ ? \@{[split(',',$_->[2])]} : $_->[2]; $required->{$_->[0]} = $_->[3] } @getOptions;
+
+# build options list
+my %getOptions = ();
+map { $getOptions{defined($_->[1]) ? $_->[0].'='.$_->[1] : $_->[0]} = ref($opt->{$_->[0]}) eq 'ARRAY' ? $opt->{$_->[0]} : \$opt->{$_->[0]} } @getOptions;
+
+# Retrieve options
+#  first, only retrieve output directory to test if it exists
+#  if outdir exists and outdir is the only option, get previous configuration
+my $outdir;
+Getopt::Long::Configure("pass_through");
+GetOptions('o|outdir=s' => \$outdir) || pod2usage();
+my $retrieve_conf = 0;
+if ($outdir && -d $outdir) {
+	print "Output directory exists.\n";
+	unless (@ARGV) {
+		print "No more argument, get previous configuration.\n";
+		$retrieve_conf = 1;
+	}
+	$opt = get_drap_config($outdir, $retrieve_conf, $opt);
+	unless (exists($opt->{meta})) {
+		printOutMessage("OUTPUT DIRECTORY IS NOT A runMeta OUTPUT DIRECTORY.\n");
+	}
+}
+$opt->{'o|outdir'} = $outdir; 
+# retrieve other options
+Getopt::Long::Configure("no_pass_through");
+GetOptions(%getOptions) || pod2usage();
+pod2usage(1) if ($opt->{'help'});
+
+# check required
+map { pod2usage("$_ is required") if ($required->{$_} && ! defined($opt->{$_})) } keys %$opt;
+
+# restrict keys of %opt-> to long option names - key 'o|outdir' become 'outdir' and replace - by _
+map { my $key = $_; s/.+\|//; s/-/_/g; $opt->{$_} = delete($opt->{$key}) } keys %$opt;
+
+## allowing comma-separated lists of values as well as multiple occurrences of the options
+@{$opt->{drap_dirs}} = @ARGV unless (@{$opt->{drap_dirs}}); # compatibility with drap-v1.8
+@{$opt->{drap_dirs}} = split(/,/, join(',', @{$opt->{drap_dirs}}));
+
+# initialize drap path
+$opt->{binpath}	   = "$FindBin::RealBin/bin";
+$opt->{cfgpath}	   = "$FindBin::RealBin/cfg";
+$opt->{reportpath} = "$FindBin::RealBin/report";
+
+# CFG_FILE param checking
+if (defined($opt->{cfg_file})) {
+	unless (-f $opt->{cfg_file}) { printOutMessage("NO SUCH CONFIG FILE : $opt->{cfg_file}") };
+} else {
+	$opt->{cfg_file} = $opt->{cfgpath}."/drap.cfg";
+}
+
+# expand PATH and ENV variables
+$ENV{PATH} = $opt->{binpath}.":".$ENV{PATH};
+$opt->{env}->{PATH} = $ENV{PATH};
+set_extended_path( $opt->{cfg_file} );
+set_env_variables( $opt->{cfg_file}, $opt );
+
+#------------------
+# PARAMS CHECKINGS
+#------------------
+my $paired_asm;
+unless (scalar(@{$opt->{drap_dirs}}) > 1) { printOutMessage("AT LEAST TWO runDrap DIRECTORIES ARE MANDATORY\n") };
+foreach (@{$opt->{drap_dirs}}) {
+	unless (-d $_){ printOutMessage("NO SUCH DRAP DIRECTORY: $_"); }
+	unless (-f "$_/.drap_conf.json"){ printOutMessage("CANNOT FIND DRAP CONFIG FILE .drap_conf.json INSIDE DRAP DIRECTORY: $_"); }
+	$paired_asm += get_cfg_param($_, 'paired');
+}
+
+if (defined($opt->{ref})) {
+	unless (-f $opt->{ref}) { printOutMessage("NO SUCH REFERENCE FASTA FILE : $opt->{ref}"); }
+}
+
+if (defined($opt->{strand})) {
+	if ($opt->{strand} ne 'F' && $opt->{strand} ne 'R' && $opt->{strand} ne 'RF' && $opt->{strand} ne 'FR') {
+		printOutMessage("UNKNOWN STRAND-SPECIFIC library TYPE. Please choose \'R\', \'F\' for SINGLE reads, \'RF\' or \'FR\' for PAIRED reads");
+	}
+	foreach my $drap_dir (@{$opt->{drap_dirs}}) {
+		my $used_strand = get_cfg_param($drap_dir, 'strand');
+		printf("Warning: --strand parameter differs from STRAND-SPECIFIC library TYPE use for assembly %s (%s)\n",
+			$drap_dir, $used_strand ? "--strand $used_strand" : "no strand parameter") if ($opt->{strand} ne $used_strand
+		);
+	}
+}
+
+if (($opt->{type} ne 'contig') && ($opt->{type} ne 'orf')){ printOutMessage("TYPE MUST BE \'contig\' OR \'orf\'"); }
+
+unless (defined($opt->{local})) {
+	$opt->{local} = 1 if (get_scheduler_type($opt->{cfg_file}) eq 'local');
+}
+
+if (defined($opt->{optimize}) && !$paired_asm) { printOutMessage("TRANSRATE OPTIMIZATION only available with PAIRED reads"); }
+
+# in run only mode, just run existing shell scripts
+if (defined($opt->{run})) {
+	printOutMessage("OUTPUT DIRECTORY MUST EXIST IN RUN ONLY MODE") unless (-d $opt->{outdir});
+	system("$FindBin::RealBin/bin/submit_jobs_files.pl $opt->{outdir}");
+	exit 0;
+}
+
+# add config params in %$opt
+my @steps = qw(meta_merge meta_longest_orf meta_cluster_orf meta_longest_contig meta_cluster_contig meta_index meta_rmbt meta_filter meta_postprocess meta_reference);
+my @dir_list = ("a-orf_clustering", "b-contig_clustering", "c-rmbt", "d-cov_filter", "e-exonerate", "e-blat");	
+
+my $align_blat = defined($opt->{exonerate}) && $opt->{exonerate} ? 0 : 1;
+my $align_exonerate = defined($opt->{blat}) && $opt->{blat} ? 0 : 1;
+
+$opt->{submit_log}	= "$opt->{outdir}/00-meta-assembly.log";
+$opt->{cmd_log}		= "$opt->{outdir}/00-runMeta_cmd.log";
+$opt->{filter}		= 0 unless (defined($opt->{filter}));
+$opt->{no_rate}		= 1 unless ($paired_asm);
+$opt->{stranded}	= defined($opt->{strand}) ? 1 : 0;
+$opt->{coverages}	= [split(/,/, $opt->{coverage})];
+$opt->{blat}		= $align_blat;
+$opt->{exonerate}	= $align_exonerate;
+$opt->{dir_list}	= [map { "$opt->{outdir}/$_" } @dir_list];
+$opt->{steps}		= \@steps;
+my $n				= 0;
+$opt->{scripts}		= {map { $_, [sprintf("%s/%02d-%s.sh", $opt->{outdir}, ++$n, $_ eq 'dbg' ? $opt->{dbg} : $_)] } @steps};
+$opt->{restart}		= -f $opt->{cmd_log} ? 1 : 0;
+$opt->{meta}		= 1;
+$opt->{display}		= $opt->{restart};
+$opt->{rmbt_status} = {};
+
+our $no_qacct = $opt->{no_qacct};
+my $resubmit = 0;
+my $clean_msg;
+if ($opt->{restart}) {
+	print "Check steps already executed:\n";
+} else {
+	print 'Run meta-assembly from '.scalar(@{$opt->{drap_dirs}})." primary assemblies\n";
+}
+
+# convert path to absolute path for outdir and files outside outdir
+foreach my $key (qw(outdir ref cfg_file)) {
+	next unless (defined($opt->{$key}));
+	$opt->{$key} = File::Spec->rel2abs($opt->{$key});
+}
+
+# create output directory
+mkdir($opt->{outdir}) or die "Can't create directory $opt->{outdir}\n" unless (-d $opt->{outdir});
+
+# write command in log file
+open(LOG, ">>$opt->{cmd_log}") or die "Can't open file $opt->{cmd_log}\n";
+print LOG "$0 ".join(' ', map { / / ? "'$_'" : $_ } @backup_options)."\n";
+close LOG;
+
+# create directory tree
+make_path("$opt->{outdir}/err_log", grep { basename($_) !~ /(exonerate|blat)/ || ($opt->{ref} && $opt->{$1}) } @{$opt->{dir_list}});
+
+# rename existing shell scripts
+foreach my $script (glob("$opt->{outdir}/*.sh")) {
+	next if ($script =~ /\d+:\d+:\d+\.sh/); # previously renamed script
+	my $mdate = strftime("%Y-%m-%d_%H:%M:%S", localtime((stat($script))[9]));
+	my $name_no_ext = $opt->{outdir}.'/'.basename($script, '.sh');
+	map { unlink() if (compare($script, $_) == 0) } glob("$name_no_ext.*-*-*_*:*:*.sh"); # remove previously renamed scripts identical to current one
+	rename($script, "$name_no_ext.$mdate.sh");
+}
+
+# start report
+my $orig_report_folder = $opt->{reportpath};
+my $report_folder = $opt->{outdir}."/report" ;
+my $report_db_folder = $report_folder."/database" ;
+my $report = undef ;
+if( $opt->{restart} ){
+	$report = Report::load_json( $report_db_folder."/report_db.json" );
+} else {
+	$report = new Report( $0." ".join(" ", @ARGV) );
+}
+
+my $nstep = 0;
+# rename and merge all primary assembly contigs
+# write file 01.sh
+my $merge_analysis = $report->get_or_create_analysis( 'Merge assemblies', 'Rename and merge all primary assembly contigs.' );
+$opt->{step} = $opt->{steps}->[$nstep];
+$opt->{complete} = 1;
+unless (-f "$opt->{dir_list}->[0]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 0);
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	foreach my $drap_dir (@{$opt->{drap_dirs}}) {
+		my $condition = basename($drap_dir);
+		my $drap_lowest_fpkm = $opt->{input_cov} || shift(@{get_cfg_param($drap_dir, 'coverages')});
+		die "Can't open file $drap_dir/$opt->{input_type}_fpkm_$drap_lowest_fpkm.fa\n" unless (-f "$drap_dir/$opt->{input_type}_fpkm_$drap_lowest_fpkm.fa");
+		$opt->{cmd} .= qq(cat $drap_dir/$opt->{input_type}_fpkm_$drap_lowest_fpkm.fa | sed -e "s/^>/>${condition}_/" >> $opt->{dir_list}->[0]/all_conditions_contigs.fa\n);
+	}
+	$opt->{cmd} .= "touch $opt->{dir_list}->[0]/.$opt->{step}.over\n";
+	my $merge_metrics_file = $report_db_folder."/".$merge_analysis->get_or_create_step('Rename and merge')->get_or_create_metrics_filename('fastaAssembly');
+	$opt->{cmd} .= $opt->{binpath}."/fastaAssemblyMetrics.pl --input ".$opt->{dir_list}->[0]."/all_conditions_contigs.fa > ".$opt->{dir_list}->[0]."/all_conditions_contigs_metrics.tsv \n"
+	              .$opt->{binpath}."/fastaMetrics2json.pl ".$opt->{dir_list}->[0]."/all_conditions_contigs_metrics.tsv > ".$merge_metrics_file." \n"
+	              .'\rm '.$opt->{dir_list}->[0]."/all_conditions_contigs_metrics.tsv \n" ;
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# get longest orf for each contig
+# write file 02.sh
+my $orf_clustering_analysis = $report->get_or_create_analysis( 'ORFs based clustering', 'Extract the longest ORF from each contig and clusterize ORFs' );
+my $previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+unless (-f "$opt->{dir_list}->[0]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 0, "$opt->{dir_list}->[0]/.$previous_step.over");
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	$opt->{cmd} .= "$opt->{binpath}/get_longest_orf.pl -f $opt->{dir_list}->[0]/all_conditions_contigs.fa -aa | sed -e 's/\\(>.*\\)#.*/\\1/' > $opt->{dir_list}->[0]/all_conditions_contigs_longest_orf.faa\n"
+	              ."touch $opt->{dir_list}->[0]/.$opt->{step}.over\n";
+	my $longest_orf_metrics_file = $report_db_folder."/".$orf_clustering_analysis->get_or_create_step('Longest ORF extraction')->get_or_create_metrics_filename('fastaAssembly');
+	$opt->{cmd} .= $opt->{binpath}."/fastaAssemblyMetrics.pl --input ".$opt->{dir_list}->[0]."/all_conditions_contigs_longest_orf.faa > ".$opt->{dir_list}->[0]."/all_conditions_contigs_longest_orf_metrics.tsv \n"
+	              .$opt->{binpath}."/fastaMetrics2json.pl ".$opt->{dir_list}->[0]."/all_conditions_contigs_longest_orf_metrics.tsv > ".$longest_orf_metrics_file." \n"
+	              .'\rm '.$opt->{dir_list}->[0]."/all_conditions_contigs_longest_orf_metrics.tsv \n" ;
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# clusterize orfs with cd-hit
+# write file 03.sh
+$previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+unless (-f "$opt->{dir_list}->[0]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 0, "$opt->{dir_list}->[0]/.$previous_step.over");
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	$opt->{cmd} = "cd-hit -i $opt->{dir_list}->[0]/all_conditions_contigs_longest_orf.faa -o $opt->{dir_list}->[0]/cd-hit_orfs.faa -M 0 -d 0 -c 0.90 -g 1 -T $opt->{env}->{n_cpu} > $opt->{dir_list}->[0]/cd-hit_orfs.faa.log\n"
+	             ."touch $opt->{dir_list}->[0]/.$opt->{step}.over\n";
+	my $cluster_orf_metrics_file = $report_db_folder."/".$orf_clustering_analysis->get_or_create_step('Clustering with cd-hit')->get_or_create_metrics_filename('fastaAssembly');
+	$opt->{cmd} .= $opt->{binpath}."/fastaAssemblyMetrics.pl --input ".$opt->{dir_list}->[0]."/cd-hit_orfs.faa > ".$opt->{dir_list}->[0]."/cd-hit_orfs_metrics.tsv \n"
+	              .$opt->{binpath}."/fastaMetrics2json.pl ".$opt->{dir_list}->[0]."/cd-hit_orfs_metrics.tsv > ".$cluster_orf_metrics_file." \n"
+	              .'\rm '.$opt->{dir_list}->[0]."/cd-hit_orfs_metrics.tsv \n" ;
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# get contig with longest orf or longest contig for each cd-hit cluster
+# write file 04.sh
+my $contig_clustering_analysis = $report->get_or_create_analysis( 'Contigs based clustering', 'From previous clusters, extract contigs with the longest ORF or the longest contig (multiple longest ORF have identical length). Clusterize contigs and discard contigs included in other ones.' );
+$previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+unless (-f "$opt->{dir_list}->[1]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 1);
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	my $dir0 = basename($opt->{dir_list}->[0]);
+	$opt->{cmd}  = "set pwd = `pwd`\n"
+	              ."ln -fs ../$dir0/cd-hit_orfs.faa.clstr $opt->{dir_list}->[1]/cd-hit_orfs.faa.clstr\n"
+	              ."ln -fs ../$dir0/all_conditions_contigs_longest_orf.faa $opt->{dir_list}->[1]/all_conditions_contigs_longest_orf.faa\n"
+	              ."ln -fs ../$dir0/all_conditions_contigs.fa $opt->{dir_list}->[1]/all_conditions_contigs.fa\n"
+	              ."cd $opt->{dir_list}->[1]\n"
+	              .<<'CSH';
+cat cd-hit_orfs.faa.clstr | perl -e '$s=shift;$n;map{if(/^>/){$c="CL".++$n}else{/.+?>(.+)\.\.\. .+/;print"$c\t$1\n"}}<STDIN>' | sort -k2,2 > all_clusters_members.tsv
+cat all_conditions_contigs_longest_orf.faa | BINPATH/fasta_length.pl | sort -k1,1 > all_longest_orf_length.tsv
+cat all_conditions_contigs.fa | BINPATH/fasta_length.pl | sort -k1,1 > all_contigs_length.tsv
+join -1 2 -2 1 all_clusters_members.tsv all_longest_orf_length.tsv | tr " " "\t" | join -1 1 -2 1 - all_contigs_length.tsv | tr " " "\t" | BINPATH/interchange_cols.pl 1 2 | sort -k1,1 > all_clusters_members_lo_lc.tsv
+cat all_clusters_members_lo_lc.tsv | perl -e 'map{chomp;@t=split("\t",$_);if($t[0]ne$c){print join("\t",$c,$r,$lo,$lc)."\n";($c,$r,$lo,$lc)=@t}else{($c,$r,$lo,$lc)=@t if($t[2]>$lo||($t[2]==$lo&&$t[3]>$lc))}}<STDIN>;print"$c\t$r\t$lo,$lc\n"' | tail -n +2 > all_clusters_longest_orf.tsv
+cut -f2 all_clusters_longest_orf.tsv | sort > cd-hit_contigs.lst
+cat all_conditions_contigs.fa | BINPATH/fasta_extract.pl cd-hit_contigs.lst > cd-hit_contigs.fa
+CSH
+	$opt->{cmd} =~ s/BINPATH/$opt->{binpath}/gi;
+	$opt->{cmd} .= "cd \$pwd\n"
+	              ."touch $opt->{dir_list}->[1]/.$opt->{step}.over\n";
+	my $longest_contig_metrics_file = $report_db_folder."/".$contig_clustering_analysis->get_or_create_step('Longest ORF/contig extraction')->get_or_create_metrics_filename('fastaAssembly');
+	$opt->{cmd} .= $opt->{binpath}."/fastaAssemblyMetrics.pl --input ".$opt->{dir_list}->[1]."/cd-hit_contigs.fa > ".$opt->{dir_list}->[1]."/cd-hit_contigs_metrics.tsv \n"
+	              .$opt->{binpath}."/fastaMetrics2json.pl ".$opt->{dir_list}->[1]."/cd-hit_contigs_metrics.tsv > ".$longest_contig_metrics_file." \n"
+	              .'\rm '.$opt->{dir_list}->[1]."/cd-hit_contigs_metrics.tsv \n" ;
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# clusterize contigs with cd-hit-est
+# write file 05.sh
+$previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+unless (-f "$opt->{dir_list}->[1]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 1, "$opt->{dir_list}->[1]/.$previous_step.over");
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	$opt->{cmd} = "cd-hit-est -i $opt->{dir_list}->[1]/cd-hit_contigs.fa -o $opt->{dir_list}->[1]/meta_contigs.fa -M 0 -d 0 -c 0.95 -T $opt->{env}->{n_cpu} > $opt->{dir_list}->[1]/meta_contigs.fa.log\n"
+	             ."touch $opt->{dir_list}->[1]/.$opt->{step}.over\n";
+	my $cluster_contig_metrics_file = $report_db_folder."/".$contig_clustering_analysis->get_or_create_step('Clustering with cd-hit-est')->get_or_create_metrics_filename('fastaAssembly');
+	$opt->{cmd} .= $opt->{binpath}."/fastaAssemblyMetrics.pl --input ".$opt->{dir_list}->[1]."/meta_contigs.fa > ".$opt->{dir_list}->[1]."/meta_contigs_metrics.tsv \n"
+	              .$opt->{binpath}."/fastaMetrics2json.pl ".$opt->{dir_list}->[1]."/meta_contigs_metrics.tsv > ".$cluster_contig_metrics_file." \n"
+	              .'\rm '.$opt->{dir_list}->[1]."/meta_contigs_metrics.tsv \n" ;
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# index resulting contigs file 
+# write file 06.sh
+my $rmbt_analysis = $report->get_or_create_analysis( 'RMBT', 'Reads are mapped back to contigs.' );
+$previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+unless (-f "$opt->{dir_list}->[2]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 1, "$opt->{dir_list}->[1]/.$previous_step.over");
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	$opt->{cmd} .= sprintf ("%s/runSamse.sh -r %s/meta_contigs.fa -f %s -o %s -m %s -t %d --index --sync%s\n",
+		$opt->{binpath}, $opt->{dir_list}->[1], get_cfg_param($opt->{drap_dirs}->[0], 'alignR1')->[0], $opt->{dir_list}->[2],
+		$opt->{mapper}, $opt->{env}->{n_cpu}, $opt->{local} ? ' --local' : ''
+	);
+	$opt->{cmd} .= "touch $opt->{dir_list}->[2]/.$opt->{step}.over\n";
+	$rmbt_analysis->get_or_create_step( 'Reference indexation', 'Index the reference contig set using bwa or STAR.' );
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# align reads to resulting contigs file
+# write file 07.sh
+my $rmbt_analysis = $report->get_or_create_analysis( 'RMBT', 'Reads are mapped back to contigs.' );
+$previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+$opt->{rmbt_ref}->{meta_rmbt} = $opt->{mapper} eq 'star' ? "$opt->{dir_list}->[2]/STAR_meta_contigs.fa" : "$opt->{dir_list}->[1]/meta_contigs.fa";
+unless (step_complete($opt) && exists($opt->{alignR1_list}) && scalar(@{[glob("$opt->{dir_list}->[2]/*.bam")]}) == scalar(@{$opt->{alignR1_list}})) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_rmbt_directory($opt, $opt->{dir_list}->[2]);
+		$clean_msg .= clean_directories($opt, 3);
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	$opt->{cmd} .= sprintf("set reference = %s\n", $opt->{mapper} eq 'star' ? "`find $opt->{dir_list}->[2] -name STAR_meta_contigs.fa_\\*`" : "$opt->{dir_list}->[1]/meta_contigs.fa");
+	foreach my $drap_dir (@{$opt->{drap_dirs}}) {
+		my $paired = get_cfg_param($drap_dir, 'paired');
+		my $alignR1 = get_cfg_param($drap_dir, 'alignR1');
+		my $alignR2 = get_cfg_param($drap_dir, 'alignR2') if ($paired);
+		for (my $i = 0 ; $i < scalar(@$alignR1) ; $i++) {
+			next if (exists $opt->{rmbt_status}->{$opt->{rmbt_ref}->{meta_rmbt}}->{$alignR1->[$i]} && $opt->{rmbt_status}->{$opt->{rmbt_ref}->{meta_rmbt}}->{$alignR1->[$i]}->{status} == 1);
+			next if (exists($opt->{alignR1_list}) && find_in($alignR1->[$i], $opt->{alignR1_list}));
+			my $fastq = $paired ? basename($alignR1->[$i]).'/'.basename($alignR2->[$i]) : basename($alignR1->[$i]);
+			$opt->{cmd} .= sprintf ("set bam = `%s/%s -r \$reference%s %s -o %s -m %s -t %d --sort_by_name --flagstat --bam%s%s`\n",
+				$opt->{binpath}, $paired ? 'runSampe.sh' : 'runSamse.sh', $opt->{mapper} eq 'star' ? ' -g' : '',
+				$paired ? "-1 $alignR1->[$i] -2 $alignR2->[$i]" : "-f $alignR1->[$i]",
+				$opt->{dir_list}->[2], $opt->{mapper}, $opt->{env}->{n_cpu}, $opt->{filter} ? ' -y' : '', $opt->{local} ? ' --local' : ''
+			);
+			my $flagstat_metrics_file = $report_db_folder."/".$rmbt_analysis->get_or_create_step($opt->{mapper}, "Align reads using $opt->{mapper}.")->get_or_create_metrics_filename('flagstatLog', $fastq);
+			my $flagstat_metrics_basename = basename($flagstat_metrics_file, '.json');
+			if ($opt->{local}) {
+				$opt->{cmd} .= "$opt->{binpath}/alignmentMetrics2json.pl \$bam.flagstat > $flagstat_metrics_file\n" ;
+			} else {
+				$opt->{cmd} .= "set bam_jid = `echo \$bam | sed -e 's/.*\\.\\([0-9]*\\)\\.bam/\\1/'`\n"
+				              ."set hold_jid = `cat $opt->{dir_list}->[2]/err_log_\$bam_jid/runSam?e.\$bam_jid.jid | tr '\\n' ,`\n"
+				              ."set metric = \"$opt->{binpath}/submitJob --name meta_$flagstat_metrics_basename --stdout $opt->{outdir}/err_log --stderr $opt->{outdir}/err_log --options -hold_jid \$hold_jid --binary -- '$opt->{binpath}/alignmentMetrics2json.pl \$bam.flagstat > $flagstat_metrics_file'\"\n"
+				              ."echo \$metric\nset metric_out = `eval \$metric`\necho \$metric_out\n"
+			}
+			if ($paired) {
+				push(@{$opt->{alignR1_list}}, $alignR1->[$i]) unless (find_in($alignR1->[$i], $opt->{alignR1_list}));
+				push(@{$opt->{alignR2_list}}, $alignR2->[$i]) unless (find_in($alignR2->[$i], $opt->{alignR2_list}));
+			}
+		}
+	}
+	unless ($opt->{local} || !$opt->{cmd}) {
+		$opt->{cmd} .= "set all_jid = `cat $opt->{dir_list}->[2]/err_log_*/runSam?e.*.jid | tr '\\n' ,`\n"
+		              ."set pending = \"$opt->{binpath}/submitJob --name pending_rmbt --sync --stdout $opt->{outdir}/err_log --stderr $opt->{outdir}/err_log --options -hold_jid \$all_jid --binary -- echo meta_rmbt ended\"\n"
+		              ."echo \$pending\nset pending_out = `eval \$pending`\necho \$pending_out\n"
+		              ."touch $opt->{dir_list}->[2]/.$opt->{step}.over\n"
+	}
+	write_shell($opt) if ($opt->{cmd});
+}
+print_msg($opt) if ($opt->{display}); 
+
+# run eXpress and TransDecoder. Filter contigs on length and coverage criterias
+# write file 08.sh
+my $coverageClean_analysis = $report->get_or_create_analysis( 'Coverage cleanning', 'Use mapping to filter low coverage contigs.' );
+$previous_step = $opt->{steps}->[$nstep];
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+my $lowest_fpkm = $opt->{coverages}->[0];
+unless (-f "$opt->{dir_list}->[3]/.$opt->{step}.over" && step_complete($opt)) {
+	$opt->{complete} = 0;
+	my $hold_jid;
+	if ($opt->{restart}) {
+		$clean_msg .= clean_directories($opt, 3);
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	$opt->{cmd} = "set pwd = `pwd`\n"
+	             ."cd $opt->{dir_list}->[3]\n"
+	             .sprintf("ln -fs ../%s/meta_contigs.fa\n", basename($opt->{dir_list}->[1]))
+	             .sprintf("set all_bam = `find ../%s -name \\*.bam | tr '\\n' ,`\nif (\$all_bam == '') exit\n", basename($opt->{dir_list}->[2]))
+	             .sprintf("express --no-update-check --no-bias-correct --logtostderr%s meta_contigs.fa \$all_bam\n", $opt->{stranded} ? ' --'.lc($opt->{strand}).'-stranded' : '');
+	if ($opt->{type} eq 'orf') {
+		$opt->{cmd} .= sprintf("%s -t meta_contigs.fa%s\n", "TransDecoder.LongOrfs", $opt->{stranded} ? ' -S' : '')
+		              .sprintf("%s -t meta_contigs.fa\n", "TransDecoder.Predict")
+		              .qq(sed 1d meta_contigs.fa.transdecoder.bed | cut -f1,7,8 | sort -k1,1 -k2,2g | bedtools merge -i - | awk '{print \$1"\\t"\$3-\$2}' | sort -k2,2rg | awk '\\!seen[\$1]{print}{++seen[\$1]}' > meta_contigs.orf_length.tsv\n);
+	}
+	$opt->{cmd} .= sprintf("%s/cov_length_filter.sh -f meta_contigs.fa -x results.xprs -b meta_contigs.orf_length.tsv -t %s -l %d -c %s\n",
+		$opt->{binpath}, $opt->{type}, $opt->{length}, $opt->{optimize} ? $lowest_fpkm : $opt->{coverage}
+	);
+	$opt->{cmd} .= "cd \$pwd\n"
+	              ."touch $opt->{dir_list}->[3]/.$opt->{step}.over\n";
+	my $coverageFilter_step = $coverageClean_analysis->get_or_create_step( 'Coverage filtering', 'Filter contigs below coverage or length thresholds.' );
+	my $expressLog_metrics_file = $report_db_folder."/".$coverageFilter_step->get_or_create_metrics_filename('expressLog') ;
+	$opt->{cmd} .= $opt->{binpath}."/expressMetrics2json.pl ".$opt->{dir_list}->[3]."/results.xprs > ".$expressLog_metrics_file." \n";
+	foreach my $fpkm ( @{$opt->{coverages}} ){
+		last if ($opt->{optimize} && $fpkm > $lowest_fpkm);
+		my $expressFasta_metrics_file = $report_db_folder."/".$coverageFilter_step->get_or_create_metrics_filename('fastaAssembly', 'fpkm_'.$fpkm );
+		$opt->{cmd} .= $opt->{binpath}."/fastaAssemblyMetrics.pl --input ".$opt->{dir_list}->[3]."/transcripts_fpkm_".$fpkm.".fa > ".$opt->{dir_list}->[3]."/fpkm-".$fpkm."_metrics.tsv \n"
+		              .$opt->{binpath}."/fastaMetrics2json.pl ".$opt->{dir_list}->[3]."/fpkm-".$fpkm."_metrics.tsv > ".$expressFasta_metrics_file." \n"
+		              .'\rm '.$opt->{dir_list}->[3]."/fpkm-".$fpkm."_metrics.tsv \n";
+	}
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# check each step
+# write file 09.sh
+my $score_analysis = undef ;
+if( !$opt->{no_rate} && $paired_asm ){
+	$score_analysis = $report->get_or_create_analysis('Assembly scoring', 'Measures the quality of the assembly. A score is produced for the whole assembly, and for each contig.');
+}
+$opt->{step} = $opt->{steps}->[++$nstep];
+$opt->{complete} = 1;
+unless ((($opt->{no_rate} && -f "$opt->{outdir}/00-META-ASSEMBLY_COMPLETE") || -f "$opt->{outdir}/00-META-ASSEMBLY_RATING") && step_complete($opt)) {
+	$opt->{complete} = 0;
+	if ($opt->{restart}) {
+		$opt->{restart} = 0;
+		$resubmit = $opt->{step};
+	}
+	my $tab = "";
+	if (-f "$opt->{outdir}/00-META-ASSEMBLY_COMPLETE") {
+		$resubmit = 'transrate';
+	} else {
+		$opt->{cmd} = "$opt->{binpath}/check_assembly.pl $opt->{outdir}\n"
+		             ."if (! -e $opt->{outdir}/00-META-ASSEMBLY_COMPLETE) then\n"
+		             ."\techo 'Meta-assembly not complete; exit'\n"
+		             ."\texit\n";
+		$tab = "\t";
+	}
+	unless ($opt->{no_rate}) {
+		$opt->{cmd} .= "else\n" unless (-f "$opt->{outdir}/00-META-ASSEMBLY_COMPLETE");
+		$opt->{cmd} .= sprintf("%stransrate --assembly=%s/transcripts_fpkm_%d.fa --left=%s --right=%s --threads=%d --output=%s/transrate %s> %s/00-META-ASSEMBLY_RATING\n",
+			$tab, $opt->{dir_list}->[3], $lowest_fpkm, join(',',@{$opt->{alignR1_list}}), join(',',@{$opt->{alignR2_list}}), $opt->{env}->{n_cpu},
+			$opt->{outdir}, $opt->{ref} ? "--reference=$opt->{ref} " : '', $opt->{outdir}
+		);
+		$opt->{cmd} .= "${tab}$opt->{binpath}/check_assembly.pl $opt->{outdir} $opt->{step}\n";
+		# Report
+		my $scroring_metrics_file = $report_db_folder."/".$score_analysis->get_or_create_step("Transrate score")->get_or_create_metrics_filename('assemblyScoring') ;
+		$opt->{cmd} .= "${tab}$opt->{binpath}/transrateMetrics2json.pl $opt->{outdir}/00-META-ASSEMBLY_RATING > $scroring_metrics_file\n";
+		# Filter
+		if ($opt->{optimize}) {
+			$opt->{cmd} .= "${tab}ln -fs transrate/transcripts_fpkm_$lowest_fpkm/good.transcripts_fpkm_$lowest_fpkm.fa $opt->{outdir}/transcripts_fpkm_$lowest_fpkm.fa\n"
+			              ."${tab}set tmp = `mktemp`\n"
+			              ."${tab}grep '^>' $opt->{dir_list}->[3]/coding_transcripts_fpkm_$lowest_fpkm.fa | tr -d '>' > \$tmp\n" 
+			              ."${tab}cat $opt->{outdir}/transcripts_fpkm_$lowest_fpkm.fa | $opt->{binpath}/fasta_extract.pl \$tmp > $opt->{outdir}/coding_transcripts_fpkm_$lowest_fpkm.fa\n"
+			              ."${tab}rm -f \$tmp\n";
+		}
+	}
+	$opt->{cmd} .= "endif\n" unless (-f "$opt->{outdir}/00-META-ASSEMBLY_COMPLETE");
+	write_shell($opt);
+}
+print_msg($opt) if ($opt->{display}); 
+
+# align filtered contigs to reference using exonerate and blat
+# write 10.sh
+$opt->{step} = $opt->{steps}->[++$nstep];
+if ($opt->{ref}) {
+	my ($is_prot, $c);
+	open (FA, $opt->{ref}) or die "Can't open file $opt->{ref}\n";
+	while (<FA>) {
+		next if /^>/;
+		$c++;
+		if (m/[EFIJLOPQXZ]/i) {
+			$is_prot = 1;
+			last;
+		}
+		last if $c > 1000;
+	}
+	close FA;
+	my $ref_jobs;
+	foreach my $tool (qw(exonerate blat)) {
+		next unless ($opt->{$tool});
+		$opt->{complete} = 1;
+		$opt->{tool} = $tool;
+		my ($dir, $param) = $tool eq 'exonerate' ? ($opt->{dir_list}->[4], " --params '-m protein2dna'") : ($opt->{dir_list}->[5], " --params '-q=prot -t=dnax'");
+		unless (-d $dir && step_complete($opt)) {
+			$opt->{complete} = 0;
+			my $target = sprintf("%s/transcripts_fpkm_%d.fa", $opt->{outdir}, $lowest_fpkm);
+			my $output = sprintf("%s/%s.%s.%s.%s", $dir, basename($opt->{ref}), basename($target), $tool, $tool eq 'exonerate' ? 'tsv' : 'psl');
+			my $best   = sprintf("%s/%s.%s.%s.best.tsv", $dir, basename($opt->{ref}), basename($target), $tool);
+			$ref_jobs .= sprintf("\t%s/submit%s.pl --max-sub 70 --query %s --target %s --output %s --best %s%s%s\n",
+				$opt->{binpath}, ucfirst($tool), $opt->{ref}, $target, $output, $best, $is_prot ? $param : '', $opt->{local} ? ' --local' : ''
+			);
+			$clean_msg .= clean_directory($dir, 0) if ($opt->{restart});
+		}
+		print_msg($opt) if ($opt->{display}); 
+	}
+	if ($ref_jobs) {
+		$opt->{complete} = 0;
+		$opt->{cmd} = "if (! -e $opt->{outdir}/00-META-ASSEMBLY_COMPLETE) then\n\techo 'Meta-assembly not complete; exit'\n\texit\nelse\n${ref_jobs}endif";
+		write_shell($opt);
+		if ($opt->{restart}) {
+			$opt->{restart} = 0;
+			$resubmit = $opt->{step};
+		}
+	}
+}
+
+# Create report
+create_report($orig_report_folder, 'DRAP_assessment.html', $opt->{outdir}, $report_db_folder, $report);
+
+print $clean_msg if ($clean_msg);
+print "Meta-assembly complete: nothing to do\n" if ($opt->{restart} && ! $resubmit);
+unlink(glob("$opt->{outdir}/00-META-ASSEMBLY_COMPLETE"), glob("$opt->{outdir}/00-ERROR_AT_*_STEP"), glob("$opt->{outdir}/*transcripts_fpkm_*.fa")) if ($resubmit && $resubmit ne 'meta_reference' && $resubmit ne 'transrate');
+
+chmod(0775, glob("$opt->{outdir}/*.sh"));
+# remove renamed shell scripts if they are equal to new ones
+foreach my $script (glob("$opt->{outdir}/*.sh")) {
+	next if ($script =~ /\d+:\d+:\d+\.sh/); # previously renamed script
+	map { unlink() if (compare($script, $_) == 0) } glob($opt->{outdir}.'/'.basename($script, '.sh').".*-*-*_*:*:*.sh"); # remove previously renamed scripts identical to current one
+}
+
+set_drap_config($opt->{outdir}, $opt);
+system("$opt->{binpath}/submit_jobs_files.pl $opt->{outdir}") unless (defined($opt->{write}));
+exit 0;
+
+=pod
+
+=head1 NAME
+
+runMeta
+
+=head1 SYNOPSIS
+
+ runMeta \
+   --outdir OUTPUT_DIR \
+   --drap-dirs DRAP_DIR_1,DRAP_DIR_2[,...,DRAP_DIR_n] \
+   [--strand R|F|RF|FR] \
+   [--ref FASTA_REF] \
+   [--mapper bwa|STAR] \
+   [--write] \
+   [--run] \
+   ... \
+   --help
+   
+=head1 DESCRIPTION
+
+runMeta is a workflow used to merge assemblies from several samples/tissues/development stages in one assembly without redundancy.
+From two or more runDrap assemblies, it generates a meta-assembly and a report in report/DRAP_report.html.
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-o, --outdir> OUTPUT_DIR
+
+The path for the output directory. The last folder will be created by the
+workflow.
+If you use an already existing output directory the workflow will process only
+the missing results (this is used in rerun after error).
+If you use an already existing output directory and give no other options,
+the previous set of options will be used to rerun the workflow.
+
+=item B<--drap-dirs> DRAP_DIR_1,DRAP_DIR_2[,...,DRAP_DIR_n]
+
+The paths to the runDrap output directories of assemblies to meta-assemble, comma-separated.
+
+=item B<--input-type> coding_transcripts|transcripts
+
+runDrap assembly target type: coding_transcripts or transcripts. Associated with the input-cov parameter, 
+indicates from which fasta files inside each runDrap output directories runMeta will be performed.
+The default type is transcripts.
+
+=item B<--input-cov> INTEGER
+
+runDrap assembly target coverage. By default, runMeta is performed from transcripts_fpkm_$lowest.fa files
+found inside runDrap directories with $lowest equal to the lowest fpkm value.
+
+=item B<-s, --strand> FR|RF|F|R
+
+For strand specific sequencing data: FR or RF for paired reads; F or R for single
+
+=item B<-r, --ref> FASTA_FILE
+
+Fasta file with knowns proteins or transcripts to align with contigs using Exonerate or Blat.
+
+=item B<-m, --mapper> bwa|star
+
+Mapper to perform the RMBT step (Reads Mapped Back to Transcripts).
+Available mappers are bwa and star.
+The default mapper is bwa. 
+
+=item B<-y, --filter>
+
+Use the -y bwa option to filter Casava-filtered sequences at the RMBT step.
+Ignored if mapper is star.
+
+=item B<-l, --length> INTEGER
+
+Length filter cutoff in nucleotides at the contig filtering step.
+The default length is 200. 
+
+=item B<-t, --type> contig|orf
+
+Filter target type is contig or orf. If type is contig, contigs shorter than the length filter cutoff are discarded.
+If type is orf, contigs with a longest orf shorter than the length filter cutoff are discarded.
+
+=item B<-v, --coverage> INTEGER_LIST
+
+FPKM list of values used as coverage filter cutoff, comma-separated. For each value, a subset of the final contig set 
+will be created only with contigs having an higher abundance estimation.
+Abundances are estimated with eXpress. Default list is 1,3,5,10.
+
+=item B<--no-rate>
+
+Without this option TransRate (http://hibberdlab.com/transrate/) is used to 
+produce a score on assembly from paired-end data. The score is calculated as 
+the geometric mean of all contig scores multiplied by the proportion of input 
+reads that provide positive support for the assembly.
+By default, TransRate is performed on the assembly filtered with the lowest FPKM value.
+
+=item B<--optimize>
+
+Apply the TransRate optimization procedure on the assembly filtered with the lowest FPKM value.
+This will create a subset of the final contig set only with contigs having a TransRate score higher
+than the TransRate optimal score.
+
+=item B<--exonerate>
+
+Align reference with contigs using Exonerate only.
+
+=item B<--blat>
+
+Align reference with contigs using Blat only.
+
+=item B<--cfg-file>
+
+Run worflow with a user DRAP configuration file.
+This file must keep the syntax of the default configuration file.
+The default configuration file is DRAP_DIR/cfg/drap.cfg.
+
+=item B<--write>
+
+Only write job submission files and exit before running workflow.
+Allow users to modify by hand some scripts executed during the workflow.
+
+=item B<--run>
+
+Only execute job submission files. For example, after user script modifications.
+
+=item B<-h, --help>
+
+Print help.
+
+=back
+
+=head1 VERSION
+
+1.91
+
+=head1 AUTHORS
+
+ Cedric Cabau - Anis DJARI - INRA Toulouse - sigenae-support@listes.inra.fr
+	
+=head1 COPYRIGHT
+
+ 2016 INRA
+
+=head1 LICENSE
+
+ GNU GPLv3
+
+=cut
