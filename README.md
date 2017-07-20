@@ -109,7 +109,6 @@ where:
 Each of those folders must contains at least le following contents in order to successfully run `runMeta`:
 
  - `.drap_conf.json` (used in the steps `06-meta_index.sh`, `07-meta_rmbt.sh` and `09-meta_postprocess.sh` of `runMeta`): a json file containing at least the following elements:
- - 
  ```
  {
    "alignR1" : [
