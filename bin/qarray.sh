@@ -36,7 +36,7 @@ function father_call ()
 	    i=$(($i+1))
     done
     # submit job array
-    qsub -t 1-$m -v QARRAY_CMD=$cmd_file "${ARGV[@]}" $0
+    qsub -S /bin/csh -t 1-$m -v QARRAY_CMD=$cmd_file "${ARGV[@]}" $0
     exit 0
 }
 

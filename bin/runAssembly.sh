@@ -4,7 +4,7 @@
 # LICENSE: GNU GPLv3
 
 find . -name all_tgicl_singlets.lst -exec rm -f {} \;
-tgicl -F all_dbg.fa -c TGICL_CPU -l 60 -p 96 -s 100000
+tgicl all_dbg.fa -c TGICL_CPU -l 60 -p 96 -s 100000
 if (! -d asm_1) then
 	set clustering_start = `cat tgicl_all_dbg.fa.log | grep -c '^>>> --- clustering \[all_dbg\.fa\] started at'`
 	set clustering_stop = `cat tgicl_all_dbg.fa.log | grep -c '^<<< --- clustering \[all_dbg\.fa\] finished at'`

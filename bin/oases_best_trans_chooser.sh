@@ -17,6 +17,7 @@ cd $1
 foreach dir (k*)
 	cd $dir
 	echo "Clean locus in $dir"
+  #strace -f python -c 'help("modules")'
 	$scriptpath/Oasesv2.0.4BestTransChooser.py -l 0.8
 	cd ..
 end

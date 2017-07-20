@@ -6,7 +6,7 @@
 =head1 NAME
 
  GenotoulGridRunner
- 
+
 =head1 SYNOPSIS
 
  GenotoulGridRunner INPUT [--help]
@@ -75,14 +75,14 @@ run_on_grid (@all_cmds);
 sub run_on_grid {
 	my @cmds = @_;
 
-	my $std_queue      = $ENV{'DEFAULT_QUEUE'} || 'workq';
-	my $mem_queue      = $ENV{'MEM_QUEUE'} || 'hypermemq';
+	my $std_queue      = $ENV{'default_queue'} || 'workq';
+	my $mem_queue      = $ENV{'mem_queue'} || 'hypermemq';
 	my $max_chunk_jobs = $ENV{'TRINITY_MAX_CHUNK_JOBS'} || 100;
-	my $node_max_mem   = $ENV{'NODE_MAX_MEM'} || 240;
+	my $node_max_mem   = $ENV{'node_max_mem'} || 240;
 	my $qarray = 'qarray' ;
 	`which $qarray 2> /dev/null`;
 	if ($?) {
-		$qarray = "$FindBin::RealBin/qarray.sh";
+		$qarray = "$FindBin::RealBin/qarray.sh -S /bin/csh";
 	}
 
 	my $try = 1;
@@ -101,7 +101,7 @@ sub run_on_grid {
 
 	my $cwd = getcwd();
 	my ($cmd_name) = $cmds[0] =~ /(?:java .*-jar )*(?:\S+\/)*(\S+?)(?:\.jar)* .+/;
-	
+
 	# split submission in chunks of $max_chunk_jobs jobs
 	my $split = 1;
 	while (@cmds) {
@@ -130,7 +130,7 @@ sub run_on_grid {
 		$num_split_cmds,$cmd_name,$num_split_cmds > 1 ? 's' : '',$try,&now
 	);
 	my $cmd = sprintf(
-		"$qarray -N %s -sync y -q %s -l mem=%dG,h_vmem=%dG -o %s -e %s %s/%s.sh",
+		"$qarray -N %s -sync y -q %s -l mem_free=%dG,h_vmem=%dG -o %s -e %s %s/%s.sh",
 		$cmd_name,$queue,$mem,$hvmem,$err_log,$err_log,$err_log,$basename
 	);
 	print "$cmd\n";
@@ -172,7 +172,7 @@ sub run_on_grid {
 	else {
 		print "All $cmd_name chunks (id:$job_id) exited with exit code 0 - ".&now."\n";
 		print "Submit $err_log cleaner\n";
-		my $cmd = "qsub -N cln$cmd_name -terse -j y -o $err_log -b y 'rm -vf $err_log/$cmd_name.[eo]*; tar --remove-files -czf $err_log/chunk_$cmd_name.tgz $err_log/chunk_$cmd_name.*.sh'";
+		my $cmd = "qsub -S /bin/csh -N cln$cmd_name -terse -j y -o $err_log -b y 'rm -vf $err_log/$cmd_name.[eo]*; tar --remove-files -czf $err_log/chunk_$cmd_name.tgz $err_log/chunk_$cmd_name.*.sh'";
 		print "$cmd\n";
 		chomp(my $job_id = qx($cmd));
 		print "Cleaner (id:$job_id) submitted\n";
@@ -186,4 +186,3 @@ sub now {
 }
 
 1;
-

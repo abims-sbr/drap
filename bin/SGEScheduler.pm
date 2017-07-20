@@ -56,8 +56,8 @@ sub new {
 =head2 function _get_multithread_memory
 
  Usage        : SGEScheduler::_get_multithread_memory( $mem, $cpu )
- Function     : Return the memory string for h_vmem and mem submission 
-                parameters. The global memory consumption is divided by the 
+ Function     : Return the memory string for h_vmem and mem submission
+                parameters. The global memory consumption is divided by the
                 number of CPUs.
  Returns      : [str] The value to use in h_vmem and mem submission parameters.
  Args         : [str] The global memory provided (example: "8g").
@@ -89,7 +89,7 @@ sub _get_multithread_memory {
 	} else {
 		die "Error in memory mangement" ;
 	}
-	
+
 	return $mem ;
 }
 
@@ -97,7 +97,7 @@ sub _get_multithread_memory {
 =head2 function _get_ressources_opt
 
  Usage        : SGEScheduler::_get_ressources_opt( $mem, $virtual_mem, $cpu )
- Function     : Returns the submission parameters for to book the memory, the 
+ Function     : Returns the submission parameters for to book the memory, the
                 virtual memory and the number of CPUs on the same computer used
                 by the commands.
  Returns      : [str] The value to use in h_vmem and mem submission parameters.
@@ -108,9 +108,9 @@ sub _get_multithread_memory {
 sub _get_ressources_opt {
 	my ( $mem, $virtual_mem, $cpu ) = @_ ;
 	my $ressources_opt = "" ;
-	
+
 	if( $cpu ne "" ){
-		$ressources_opt .= " -pe parallel_smp ".$cpu ;
+		$ressources_opt .= " -pe thread ".$cpu ;
 		if( $virtual_mem ne "" ){
 			$virtual_mem = SGEScheduler::_get_multithread_memory( $virtual_mem, int($cpu) );
 		}
@@ -119,8 +119,8 @@ sub _get_ressources_opt {
 		}
 	}
 	$ressources_opt .= $virtual_mem ne "" ? " -l h_vmem=".$virtual_mem : "" ;
-	$ressources_opt .= $mem ne "" ? " -l mem=".$mem : "" ;
-	
+	$ressources_opt .= $mem ne "" ? " -l mem_free=".$mem : "" ;
+
 	return $ressources_opt ;
 }
 
@@ -170,14 +170,14 @@ sub parallel_submit {
 	# Submit
 	my $ressources_opt = SGEScheduler::_get_ressources_opt( $mem, $virtual_mem, $cpu );
 	my $nb_command = scalar(@commands) ;
-	my $cmd_log = `qsub -V -sync y -t 1-$nb_command $ressources_opt $name_opt -e $cmd_file_global.e'\$JOB_ID'.'\$TASK_ID' -o $cmd_file_global.o'\$JOB_ID'.'\$TASK_ID' $cmd_file_wrapper` ;
+	my $cmd_log = `qsub -S /bin/csh -V -sync y -t 1-$nb_command $ressources_opt $name_opt -e $cmd_file_global.e'\$JOB_ID'.'\$TASK_ID' -o $cmd_file_global.o'\$JOB_ID'.'\$TASK_ID' $cmd_file_wrapper` ;
 	my $job_id = undef ;
 	if( $cmd_log =~ /Your job-array (\d+)/ ) { #"Your job-array 5023372.1-2:1 ("test.qarray") has been submitted"
 		$job_id = $1 ;
 	} else {
-		die "Unable to retrieve job_id for command '".$cmd_file_global."'." ;			
+		die "Unable to retrieve job_id for command '".$cmd_file_global."'." ;
 	}
-		
+
 	# Check status
 	my $username = getpwuid($<);
 	my $qacct_log = `qacct -o $username -j $job_id 2> /dev/null` ;
@@ -198,10 +198,10 @@ sub parallel_submit {
 				$exit_status = int($1) ;
 			}
 			if( !defined($failed) || !defined($exit_status) ){
-				die "Error with exit status parsing for '".$cmd_file_global."' (job ID: ".$job_id.")" ;	
+				die "Error with exit status parsing for '".$cmd_file_global."' (job ID: ".$job_id.")" ;
 			}
 			if( $failed != 0 || $exit_status != 0 ){
-				die "Error in command '".$cmd_file_global."' (job ID: ".$job_id.") see ".$cmd_file_global.".e*" ;	
+				die "Error in command '".$cmd_file_global."' (job ID: ".$job_id.") see ".$cmd_file_global.".e*" ;
 			}
 		}
 	}
@@ -225,7 +225,7 @@ sub parallel_submit {
 =cut
 sub serial_submit {
 	my ($self, $cmdSet_name, @commands) = @_ ;
-	
+
 	# Packs creation
 	my @commands_pack = ();
 	my $cmd_file_content = "#!/bin/bash\n\n" ;
@@ -234,14 +234,14 @@ sub serial_submit {
 	my $cpu = "" ;
 	my $command_idx = 1 ;
 	foreach my $current_command (@commands) {
-		if( $cmd_file_content ne "#!/bin/bash\n\n" && 
+		if( $cmd_file_content ne "#!/bin/bash\n\n" &&
 		    (($current_command->{'virtual_mem'} ne $virtual_mem) || ($current_command->{'mem'} ne $mem) || ($current_command->{'cpu'} ne $cpu))
 		){
 			my %previous_pack = ( 'cmd' => $cmd_file_content,
 			                      'cpu' => $cpu,
 			                      'mem' => $mem,
 			                      'virtual_mem' => $virtual_mem
-			); 
+			);
 			push( @commands_pack, \%previous_pack);
 			$cmd_file_content = "#!/bin/bash\n\n" ;
 			$command_idx = 1 ;
@@ -257,10 +257,10 @@ sub serial_submit {
 		                      'cpu' => $cpu,
 		                      'mem' => $mem,
 		                      'virtual_mem' => $virtual_mem
-		); 
+		);
 		push( @commands_pack, \%previous_pack);
 	}
-	
+
 	# Packs execution
 	my $pack_idx = 0 ;
 	foreach my $current_pack (@commands_pack) {
@@ -271,22 +271,22 @@ sub serial_submit {
 			$name_opt = "-N ".$cmdSet_name ;
 		}
 		$$current_pack{'cmd'} =~ s/##COMMAND_FILE##/$cmd_file/g ;
-		
+
 		# Write command file
 		open( my $FH_cmd, ">", $cmd_file ) or die "Cannot create ".$cmd_file ;
 		print $FH_cmd $$current_pack{'cmd'} ;
 		close( $FH_cmd );
-		
+
 		# Submit
 		my $ressources_opt = SGEScheduler::_get_ressources_opt( $$current_pack{'mem'}, $$current_pack{'virtual_mem'}, $$current_pack{'cpu'} );
-		my $cmd_log = `qsub -V -sync y $ressources_opt $name_opt -e $cmd_file.e -o $cmd_file.o $cmd_file` ;
+		my $cmd_log = `qsub -S /bin/csh -V -sync y $ressources_opt $name_opt -e $cmd_file.e -o $cmd_file.o $cmd_file` ;
 		my $job_id = undef ;
 		if( $cmd_log =~ /Your job (\d+)/ ) { #"Your job 5023349 ("test.qsub") has been submitted"
 			$job_id = $1 ;
 		} else {
-			die "Unable to retrieve job_id for command '".$cmd_file."'." ;			
+			die "Unable to retrieve job_id for command '".$cmd_file."'." ;
 		}
-		
+
 		# Check status
 		my $username = getpwuid($<);
 		my $qacct_log = `qacct -o $username -j $job_id 2> /dev/null` ;
@@ -313,7 +313,7 @@ sub serial_submit {
 		unlink($cmd_file);
 		unlink($cmd_file.".e");
 		unlink($cmd_file.".o");
-		
+
 		$pack_idx++ ;
 	}
 }

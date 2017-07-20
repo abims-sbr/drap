@@ -1,7 +1,7 @@
 #!/bin/csh
 
 # Usage: runSamse -r FASTA -f FASTQ [options]
-# 
+#
 # -r FASTA       REFERENCE fasta file or directory
 # -f FASTQ       FASTQ reads file(s) - separated by coma if more than one
 # -o DIRECTORY   OUTPUT directory [reference directory]
@@ -15,7 +15,7 @@
 # -p 'PARAMS'    STAR mapping params BETWEEN SINGLE QUOTES
 #                Default --alignIntronMin 10 --alignIntronMax 25000 --outFilterMultimapNmax 10000
 # -q STRING      Run align jobs with queue other than default queue [workq]
-# --flagstat     Generate samtools flagstat file 
+# --flagstat     Generate samtools flagstat file
 # --sort_by_name Sort bam by read name (no flagstat no idxstats) [unset]
 # --sort_by_pos  Sort bam by reference position (no flagstat no idxstats) [unset]
 # --index        Index the REFERENCE fasta file and exit
@@ -40,14 +40,14 @@ set script = `readlink -f $0`
 set scriptpath = `dirname $script`
 
 # default resources if env variables are unset
-if (! $?pe_smp) set pe_smp = 'parallel_smp'
-if (! $?star_idx_res) set star_idx_res = "-R y -pe $pe_smp 4 -l mem=16G,h_vmem=64G"
-if (! $?star_map_res) set star_map_res = "-l mem=4G,h_vmem=16G"
+if (! $?pe_smp) set pe_smp = 'thread'
+if (! $?star_idx_res) set star_idx_res = "-R y -pe $pe_smp 4 -l mem_free=16G,h_vmem=64G"
+if (! $?star_map_res) set star_map_res = "-l mem_free=4G,h_vmem=16G"
 if (! $?star_genome_generate_ram) set star_genome_generate_ram = 64
 if (! $?star_genome_generate_cpu) set star_genome_generate_cpu = 4
 if (! $?star_genome_sa_index) set star_genome_sa_index = 14
-if (! $?bwa_map_res) set bwa_map_res = "-l mem=8G,h_vmem=16G"
-if (! $?samtools_idx_res) set samtools_idx_res = "-R y -l mem=16G,h_vmem=32G"
+if (! $?bwa_map_res) set bwa_map_res = "-l mem_free=8G,h_vmem=16G"
+if (! $?samtools_idx_res) set samtools_idx_res = "-R y -l mem_free=16G,h_vmem=32G"
 
 foreach a ($argv:q)
 	if (! $?option) then
@@ -118,7 +118,7 @@ if !($?output) then
 		set msg = 'PLEASE GIVE REFERENCE FASTA FILE OR OUPUT DIRECTORY'
 		goto HELP
 	endif
-else 
+else
 	mkdir -p $output
 endif
 set job_id = $$
@@ -146,7 +146,7 @@ endif
 
 if !($?mapper) then
 	set mapper = 'bwa'
-else 
+else
 	set mapper = `echo $mapper | awk '{print tolower($1)}'`
 endif
 if !($mapper == 'bwa' || $mapper == 'star') then
@@ -175,6 +175,7 @@ if !($?name)     set name     = 'false'
 if !($?pos)      set pos      = 'false'
 if !($?threads)  set threads  = 4
 if !($?filter)   set filter   = 'false'
+if ($?default_queue)    set queue    = $default_queue
 if !($?queue)    set queue    = 'workq'
 if !($?sync)     set sync     = 'false'
 if !($?local)    set local    = 'false'
@@ -260,13 +261,13 @@ if ($?index_id) then
 	set hold = "-hold_jid $index_id"
 else
 	set hold = ''
-endif		
+endif
 if ($threads > 1) then
 	set pe = "-R y -pe $pe_smp $threads"
 else
 	set pe = ''
 endif
-set ext = `echo $reference:e`	
+set ext = `echo $reference:e`
 set ref = `basename $reference .$ext`
 set n = `echo $fastq | grep -c ','`
 
@@ -320,7 +321,7 @@ else
 	set samse_id = `$samse_cmd`
 	if ($bam == 'false') tail -2 $output/runSamse.$job_id.log
 	echo $samse_id >> $output/err_log_$job_id/runSamse.$job_id.jid
-endif	
+endif
 if ($stats == 'true') then
 	set stats_cmd = "$output/err_log_$job_id/stats.$job_id.sh"
 	if ($local == 'true') then
@@ -396,8 +397,8 @@ if ($?nb) then
 		set clean_id = `$clean_cmd`
 		if ($bam == 'false') tail -2 $output/runSamse.$job_id.log
 	endif
-endif	
-	
+endif
+
 exit 0
 
 HELP:

@@ -1,7 +1,7 @@
 #!/bin/csh
 
 # Usage: runSampe -r FASTA -1 FASTQ -2 FASTQ [options]
-# 
+#
 # -r FASTA       REFERENCE fasta file or directory
 # -1 FASTQ       FASTQ read file - R1
 # -2 FASTQ       FASTQ mate file - R2
@@ -26,7 +26,7 @@
 #
 # Output files written into reference directory
 # Index the REFERENCE fasta file if it has not been done
-# CAREFUL: 
+# CAREFUL:
 # - do not launch more than one runSampe with same non indexed REFERENCE fasta file to prevent concurrent indexing processes
 # - names of paired fastq files MUST CONTAIN following strings:
 #	 _R1_/_R2_ or _R1./_R2. or .R1./.R2. or _1_/_2_ or _1./_2. or .1./.2.
@@ -45,14 +45,14 @@ set script = `readlink -f $0`
 set scriptpath = `dirname $script`
 
 # default resources if env variables are unset
-if (! $?pe_smp) set pe_smp = 'parallel_smp'
-if (! $?star_idx_res) set star_idx_res = "-R y -pe $pe_smp 4 -l mem=16G,h_vmem=64G"
-if (! $?star_map_res) set star_map_res = "-l mem=4G,h_vmem=16G"
+if (! $?pe_smp) set pe_smp = 'thread'
+if (! $?star_idx_res) set star_idx_res = "-R y -pe $pe_smp 4 -l mem_free=16G,h_vmem=64G"
+if (! $?star_map_res) set star_map_res = "-l mem_free=4G,h_vmem=16G"
 if (! $?star_genome_generate_ram) set star_genome_generate_ram = 64
 if (! $?star_genome_generate_cpu) set star_genome_generate_cpu = 4
 if (! $?star_genome_sa_index) set star_genome_sa_index = 14
-if (! $?bwa_map_res) set bwa_map_res = "-l mem=8G,h_vmem=16G"
-if (! $?samtools_idx_res) set samtools_idx_res = "-R y -l mem=16G,h_vmem=32G"
+if (! $?bwa_map_res) set bwa_map_res = "-l mem_free=8G,h_vmem=16G"
+if (! $?samtools_idx_res) set samtools_idx_res = "-R y -l mem_free=16G,h_vmem=32G"
 
 foreach a ($argv:q)
 	if (! $?option) then
@@ -123,7 +123,7 @@ if !($?output) then
 		set msg = 'PLEASE GIVE REFERENCE FASTA FILE OR OUPUT DIRECTORY'
 		goto HELP
 	endif
-else 
+else
 	mkdir -p $output
 endif
 set job_id = $$
@@ -136,7 +136,7 @@ else if !(-f $R1) then
 	set msg = "NO SUCH FILE $R1"
 	goto HELP
 endif
-	
+
 if !($?R2) then
 	set msg = 'PLEASE GIVE R2 FASTQ FILE'
 	goto HELP
@@ -144,7 +144,7 @@ else if !(-f $R2) then
 	set msg = "NO SUCH FILE $R2"
 	goto HELP
 endif
-	
+
 set baseR1 = `basename $R1`
 set baseR2 = `basename $R2`
 if (`echo $baseR1 | awk '$0~/[_.]R?1\.|_R?1_|^R?1[._]/'` == "") then
@@ -165,10 +165,10 @@ else if !(-e $reference) then
 	set msg = "NO SUCH FILE or DIRECTORY $reference"
 	goto HELP
 endif
-	
+
 if !($?mapper) then
 	set mapper = 'bwa'
-else 
+else
 	set mapper = `echo $mapper | awk '{print tolower($1)}'`
 endif
 if !($mapper == 'bwa' || $mapper == 'star') then
@@ -195,7 +195,8 @@ if !($?name)     set name     = 'false'
 if !($?pos)      set pos      = 'false'
 if !($?threads)  set threads  = 4
 if !($?filter)   set filter   = 'false'
-if !($?queue)    set queue    = 'workq'
+if ($?default_queue)    set queue    = $default_queue
+if !($?queue)    set queue    = 'workq';
 if !($?sync)     set sync     = 'false'
 if !($?local)    set local    = 'false'
 if !($?force)    set force    = 'false'
@@ -248,11 +249,11 @@ endif
 
 if ($index == 'true') exit 0
 
-if ($?index_id) then 
+if ($?index_id) then
 	set hold = "-hold_jid $index_id"
 else
 	set hold = ''
-endif		
+endif
 if ($threads > 1) then
 	set pe = "-R y -pe $pe_smp $threads"
 else
@@ -260,7 +261,7 @@ else
 endif
 set aln_opt
 if !("$hold" == '' && "$pe" == '') set aln_opt = "--options $hold $pe "
-set ext = `echo $reference:e`	
+set ext = `echo $reference:e`
 set ref = `basename $reference .$ext`
 
 set R1out = `echo $baseR1 | sed -e 's/\.gz$//;s/\.fastq$//;s/\.fq$//'`

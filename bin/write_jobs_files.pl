@@ -248,8 +248,8 @@ unless (step_complete($opt)) {
 			$opt->{cmd} .= "touch $dir/.merge.normalize.over\n";
 		}
 	}
-	# Report reads statistics on normalized data	
-	unless ($opt->{no_norm}) {	
+	# Report reads statistics on normalized data
+	unless ($opt->{no_norm}) {
 		my $normalization_step = $preprocess_analysis->get_or_create_step('Normalization', 'Reduce dataset by decreasing sampling variation, discarding redundant data, and removing the majority of errors.');
 		unless (-f "$dir/.normalized_data.over") {
 				my @all_fq = map {@{$opt->{preprocessed}->{$_}}} @provided_pairs;
@@ -274,7 +274,7 @@ unless (step_complete($opt)) {
 					$opt->{cmd} .= sprintf("interleave-reads.py %s %s >> %s/tmp_Sequences\n", $opt->{preprocessed}->{R1}->[$i], $opt->{preprocessed}->{R2}->[$i], $dir);
 				}
 			} else {
-				$opt->{cmd} .= sprintf("interleave-reads.py %s %s >> %s/tmp_Sequences\n", 
+				$opt->{cmd} .= sprintf("interleave-reads.py %s %s >> %s/tmp_Sequences\n",
 					gunzip($opt->{mergeR1}), gunzip($opt->{mergeR2}), $dir
 				);
 			}
@@ -296,7 +296,7 @@ unless (step_complete($opt)) {
 	$opt->{cmd} .= "find $dir -name \\*.fq -print | xargs parallel -j $opt->{env}->{n_cpu} gzip '{}' ::: \n";
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 1);
 
 # run DBG assembler
@@ -330,7 +330,7 @@ if ($opt->{dbg} eq 'oases') {
 		my $input_reads;
 		if ($opt->{paired}) {
 			if ($opt->{no_norm} || $opt->{no_norm_merge} || $opt->{pool} == 1) {
-				$input_reads = sprintf("--left %s --right %s", 
+				$input_reads = sprintf("--left %s --right %s",
 					join(',', map { gzip($_) } @{$opt->{preprocessed}->{R1}}),
 					join(',', map { gzip($_) } @{$opt->{preprocessed}->{R2}})
 				)
@@ -346,16 +346,16 @@ if ($opt->{dbg} eq 'oases') {
 		}
 		if ($opt->{local}) {
 			$opt->{cmd} .= sprintf("Trinity --no_cleanup --seqType fq --max_memory %dG --bflyHeapSpaceMax 4G --CPU %d --output %s --no_normalize_reads %s%s\n",
-				$opt->{dbg_mem}, $opt->{env}->{n_cpu}, $opt->{dir_list}->[0], 
+				$opt->{dbg_mem}, $opt->{env}->{n_cpu}, $opt->{dir_list}->[0],
 				$input_reads, $opt->{stranded} ? " --SS_lib_type $opt->{strand}" : ''
 			);
 		} else {
 			$opt->{cmd} .= sprintf("Trinity --no_cleanup --seqType fq --max_memory %dG --bflyHeapSpaceMax 4G --CPU %d --no_distributed_trinity_exec --output %s --no_normalize_reads %s%s\n",
-				$opt->{dbg_mem}, $opt->{env}->{n_cpu}, $opt->{dir_list}->[0], 
+				$opt->{dbg_mem}, $opt->{env}->{n_cpu}, $opt->{dir_list}->[0],
 				$input_reads, $opt->{stranded} ? " --SS_lib_type $opt->{strand}" : ''
 			);
 			$opt->{cmd} .= sprintf("Trinity --no_cleanup --seqType fq --max_memory 8G --bflyHeapSpaceMax 4G --CPU 1 --grid_exec %s/%s --output %s --no_normalize_reads %s%s; ",
-				$opt->{binpath}, $opt->{env}->{trinity_grid_module}, $opt->{dir_list}->[0], 
+				$opt->{binpath}, $opt->{env}->{trinity_grid_module}, $opt->{dir_list}->[0],
 				$input_reads, $opt->{stranded} ? " --SS_lib_type $opt->{strand}" : ''
 			);
 		}
@@ -373,7 +373,7 @@ if (exists $opt->{cmd}) {
 	}
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 2);
 
 # merge kmers assemblies and run seqclean if oases ; remove contigs with Ns (fasta_noN) ; detect self chimeras
@@ -437,7 +437,7 @@ unless (-f "$opt->{dir_list}->[1]/transcripts.fa" && step_complete($opt)) {
 	$opt->{cmd} .= $opt->{binpath}."/chimeraMetrics2json.pl ".$opt->{dir_list}->[1]."/transcripts.fa.chimFilter.log > ".$chimeraLog_metrics_file."\n";
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 3);
 
 # cluster DBG contigs using cd-hit
@@ -461,7 +461,7 @@ unless (-f "$opt->{dir_list}->[2]/all_dbg.fa" && step_complete($opt)) {
 	              ."\\rm -f $opt->{dir_list}->[2]/cd-hit_metrics.tsv\n";
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 4);
 
 # assemble DBG contigs using OLC assembler
@@ -499,7 +499,7 @@ unless (-f "$opt->{dir_list}->[2]/all_contigs.raw.fa" && step_complete($opt)) {
 	              ."\\rm -f $opt->{dir_list}->[2]/tgicl_metrics.tsv\n";
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 5);
 
 # run Transdecoder and cut fusion contigs if filter type is orf ; run VecScreen filter to become TSA compliant
@@ -544,7 +544,7 @@ unless (-f "$opt->{dir_list}->[3]/all_contigs.fa" && step_complete($opt)) {
 	              ."\\rm -f $opt->{dir_list}->[3]/vecscreen_metrics.tsv\n";
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 6);
 
 # map reads back to contigs using BWA or STAR, correct variations and run again cd-hit-est
@@ -635,7 +635,7 @@ unless (-f "$opt->{dir_list}->[4]/all_contigs.second_pass.fa" && step_complete($
 			$opt->{binpath}, $opt->{dir_list}->[4], $opt->{alignR1}->[0], $opt->{dir_list}->[4],
 			$opt->{mapper}, $opt->{env}->{n_cpu}, $opt->{local} ? ' --local' : ''
 		);
-	}	
+	}
 	# runSamse or runSampe to map back reads
 	$opt->{cmd} .= sprintf("set reference = %s\n", $opt->{mapper} eq 'star' ? "`find $opt->{dir_list}->[4] -name STAR_all_contigs.first_pass.fa_\\*`" : "$opt->{dir_list}->[4]/all_contigs.first_pass.fa");
 	my $rmbt_submit = 0;
@@ -679,7 +679,7 @@ unless (-f "$opt->{dir_list}->[4]/all_contigs.second_pass.fa" && step_complete($
 	              ."\\rm -f $opt->{dir_list}->[4]/cd-hit_second_pass_metrics.tsv\n";
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 quit($opt) if ($opt->{quit} == 7);
 
 # map reads back to contigs using BWA or STAR, run eXpress and filter contigs on length and coverage criterias
@@ -741,7 +741,7 @@ unless (-f "$opt->{dir_list}->[5]/transcripts_fpkm_$lowest_fpkm.fa" && step_comp
 	);
 	my $flagstat_metrics_file = $report_db_folder."/".$aln_filter_analysis->get_or_create_step($opt->{mapper}." mapping")->get_or_create_metrics_filename('flagstatLog');
 	$opt->{cmd} .= "$opt->{binpath}/alignmentMetrics2json.pl \$bam.flagstat > $flagstat_metrics_file\n";
-	my $step_description = sprintf("Filter on coverage (fpkm: %s) and length (%s).", 
+	my $step_description = sprintf("Filter on coverage (fpkm: %s) and length (%s).",
 		$opt->{coverage}, $opt->{type} eq 'orf' ? "contigs >= $opt->{length} nucleotides" : "contigs with putative orf >= $opt->{length} nucleotides"
 	);
 	my $coverageFilter_step = $aln_filter_analysis->get_or_create_step('Coverage/length filter', $step_description);
@@ -756,7 +756,7 @@ unless (-f "$opt->{dir_list}->[5]/transcripts_fpkm_$lowest_fpkm.fa" && step_comp
 	}
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 
 # check each step and clean tree if all steps finished without errors
 # write file 09.sh
@@ -792,7 +792,7 @@ unless ((($opt->{no_rate} && -f "$dir/00-ASSEMBLY_COMPLETE") || -f "$dir/00-ASSE
 		$opt->{cmd} .= "${tab}$opt->{binpath}/check_assembly.pl $dir $opt->{step}\n";
 		# Report
 		my $scroring_metrics_file = $report_db_folder."/".$score_analysis->get_or_create_step("Transrate score")->get_or_create_metrics_filename('assemblyScoring');
-		$opt->{cmd} .= sprintf( "%s%s/transrateMetrics2json.pl %s/00-ASSEMBLY_RATING > %s\n", 
+		$opt->{cmd} .= sprintf( "%s%s/transrateMetrics2json.pl %s/00-ASSEMBLY_RATING > %s\n",
 			$tab, $opt->{binpath}, $dir, $scroring_metrics_file
 		);
 		# Filter
@@ -800,7 +800,7 @@ unless ((($opt->{no_rate} && -f "$dir/00-ASSEMBLY_COMPLETE") || -f "$dir/00-ASSE
 			$opt->{cmd} .= "${tab}if (! -e transrate/transcripts_fpkm_$lowest_fpkm/good.transcripts_fpkm_$lowest_fpkm.fa) exit\n"
 			              ."${tab}ln -fs transrate/transcripts_fpkm_$lowest_fpkm/good.transcripts_fpkm_$lowest_fpkm.fa $dir/transcripts_fpkm_$lowest_fpkm.fa\n"
 			              ."${tab}set tmp = `mktemp`\n"
-			              ."${tab}grep '^>' $opt->{dir_list}->[5]/coding_transcripts_fpkm_$lowest_fpkm.fa | tr -d '>' > \$tmp\n" 
+			              ."${tab}grep '^>' $opt->{dir_list}->[5]/coding_transcripts_fpkm_$lowest_fpkm.fa | tr -d '>' > \$tmp\n"
 			              ."${tab}cat $dir/transcripts_fpkm_$lowest_fpkm.fa | $opt->{binpath}/fasta_extract.pl \$tmp > $dir/coding_transcripts_fpkm_$lowest_fpkm.fa\n"
 			              ."${tab}\\rm -f \$tmp\n";
 		}
@@ -808,7 +808,7 @@ unless ((($opt->{no_rate} && -f "$dir/00-ASSEMBLY_COMPLETE") || -f "$dir/00-ASSE
 	$opt->{cmd} .= "endif\n" unless (-f "$dir/00-ASSEMBLY_COMPLETE");
 	write_shell($opt);
 }
-print_msg($opt) if ($opt->{display}); 
+print_msg($opt) if ($opt->{display});
 
 # align contigs to reference using exonerate and blat
 # write file 10.sh
@@ -834,7 +834,7 @@ if ($opt->{ref}) {
 			my $ref_metrics_file = $report_db_folder."/".$ref_step->get_or_create_metrics_filename('alnProtLog');
 			$ref_jobs .= "\t$opt->{binpath}/blat2json.pl $best > $ref_metrics_file\n";
 		}
-		print_msg($opt) if ($opt->{display}); 
+		print_msg($opt) if ($opt->{display});
 	}
 	if ($ref_jobs) {
 		$opt->{complete} = 0;

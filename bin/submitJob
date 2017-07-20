@@ -2,7 +2,7 @@
 
 # Usage: submitJob [options] file
 #        submitJob [options] --binary "command"
-# 
+#
 # --name        Job name
 # --stderr      Standard error stream path
 # --stdout      Standard output stream path
@@ -26,7 +26,7 @@ use Getopt::Long;
 Getopt::Long::Configure("prefix_pattern=(--)");
 
 # Options definitions (name,format,default,required)
-my @getOptions = ( 
+my @getOptions = (
 	['help',undef,undef,0],
 	['man',undef,undef,0],
 	['name','s',undef,0], 							# Job name
@@ -76,7 +76,7 @@ my $node_max_mem  = $ENV{'node_max_mem'}  || 240;
 my $qarray = 'qarray' ;
 `which $qarray 2> /dev/null`;
 if ($?) {
-	$qarray = "$FindBin::RealBin/qarray.sh";
+	$qarray = "$FindBin::RealBin/qarray.sh -S /bin/bash";
 }
 my $command = join(' ', @ARGV);
 if ($command) {
@@ -97,7 +97,7 @@ my @arguments;
 foreach my $option (@sge_opt_order) {
 	push(@arguments, $sge_options{$option} ? ($sge_options{$option}, $opt->{$option}) : $opt->{$option}) if (defined($opt->{$option}));
 }
-my $submission = sprintf("%s %s", defined($opt->{array}) ? "$qarray -V" : 'qsub -V', join(' ', @arguments, $command));
+my $submission = sprintf("%s %s", defined($opt->{array}) ? "$qarray -V" : 'qsub -V -S /bin/csh', join(' ', @arguments, $command));
 if (defined($opt->{log})) {
 	open(LOG, ">>$opt->{log}") or die("CANNOT OPEN LOG FILE: $opt->{log}");
 	print LOG $submission."\n";

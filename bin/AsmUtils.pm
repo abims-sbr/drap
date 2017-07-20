@@ -13,7 +13,7 @@
 
 =cut
 package AsmUtils;
- 
+
 use strict;
 no strict 'refs';
 use Exporter;
@@ -31,7 +31,7 @@ our @EXPORT = qw(
 	step_complete process_cmd get_more_recent_file set_drap_config
 	get_drap_config get_nb_frags submit_job get_cfg_param print_msg
 	printOutMessage create_report write_shell clean_directories
-	clean_directory clean_rmbt_directory clean_rmbt_reference 
+	clean_directory clean_rmbt_directory clean_rmbt_reference
 	valid_R1_R2 gunzip gzip find_in set_extended_path get_scheduler_type
 	set_env_variables is_prot_fasta
 );
@@ -217,8 +217,16 @@ sub write_shell {
 		$file = $file->[0] if (ref($file) eq 'ARRAY');
 		open(SH, ">$file") or croak "Can't open file $file";
 		print SH "#!/bin/csh\n" unless ($opt->{step} eq 'dbg' && $opt->{dbg} eq 'oases'); # because oases jobs will be run using the qarray command or separately in local mode
-		print SH $opt->{env}->{$opt->{step}.'_env'}."\n" if ($opt->{env}->{$opt->{step}.'_env'}); # get setup env command from drap.cfg for specific step
-		print SH $opt->{cmd};
+		if ($opt->{env}->{$opt->{step}.'_env'}) { # get setup env command from drap.cfg for specific step
+			if ($opt->{step} eq 'dbg' && $opt->{dbg} eq 'oases') {
+				map { print SH $opt->{env}->{$opt->{step}.'_env'}."; $_\n" } split("\n", $opt->{cmd});
+			} else {
+				print SH $opt->{env}->{$opt->{step}.'_env'}."\n";
+				print SH $opt->{cmd};
+			}
+		} else {
+			print SH $opt->{cmd};
+		}
 		close SH;
 	}
 	delete $opt->{cmd};
@@ -356,7 +364,7 @@ sub preprocess_complete {
 		return [0, 1, "$opt->{outdir}/trim.log"];
 	}
 	return [0, 2, "$opt->{outdir}/filter.log"] unless (-e "$opt->{outdir}/.filter.over");
-	unless ($opt->{no_norm}) { 
+	unless ($opt->{no_norm}) {
 		return [0, 3, $err] unless ($opt->{norm_merge_only} || -e "$opt->{outdir}/.normalize.over");
 		return [0, 3, $err] unless ($opt->{pool} == 1 || $opt->{no_norm_merge} || -e "$opt->{outdir}/.merge.normalize.over");
 	}
@@ -480,7 +488,7 @@ sub rmbt_editing_complete {
 	my $log = get_more_recent_file("$opt->{outdir}/err_log", 'j7-*.o*');
 	my $err = get_more_recent_file("$opt->{outdir}/err_log", 'j7-*.e*');
 	map { unlink($_) } glob("$opt->{dir_list}->[4]/*_pass.over");
-	
+
 	my $rmbt_checking = check_rmbt_directory($opt, $opt->{dir_list}->[4]);
 
 	my $passes = {
@@ -881,8 +889,8 @@ sub set_env_variables {
 					$ENV{$key} = $config->{$section}{$key};
 					$opt->{env}->{$key} = $ENV{$key};
 				}
-			}	
-		}	
+			}
+		}
 		if( defined($config->{'SCHEDULER'}) ){
 			foreach my $key (keys %{$config->{'SCHEDULER'}}) {
 				$ENV{"scheduler_$key"} = $config->{'SCHEDULER'}{$key};
