@@ -3,6 +3,7 @@
 **This is a fork** of [DRAP v1.91: http://www.sigenae.org/drap](http://www.sigenae.org/drap) adapted to the cluster of the Staion Biologique de Roscoff.
 
 Modifications are quick and dirty and not intensively tested.
+At the moment only `runMeta` works correctly with `sge` set in the `cfg/drap.cfg` file . Everything else must be used `local` option set (but can be submitted as a job with a qsub)
 
 License: [GNU GPLv3](http://www.gnu.org/licenses/gpl-3.0.en.html)
 
@@ -64,9 +65,9 @@ Go to the original install page: [http://www.sigenae.org/drap/install.html](http
     - [NCBI Blast+ >= 2.2.29](ftp://ftp.ncbi.nih.gov/blast/executables/blast+/2.2.29/)
     - [NCBI Tools >= 12.0.0](ftp://ftp.ncbi.nih.gov/toolbox/ncbi_tools++/CURRENT/)
     - [oases >= 0.2.06](https://github.com/dzerbino/oases/tree/master)
-    - [parallel >= parallel-20141022](http://ftp.gnu.org/gnu/parallel/)
+    - [parallel >= parallel-20141022](http://ftp.gnu.org/gnu/parallel)
     - [rsync >= 3.0.6](http://www.htslib.org/download/)
-    - [samtools >= 1.3](ftp://occams.dfci.harvard.edu/pub/bio/tgi/software/seqclean/)
+    - [samtools >= 1.3](ftp://occams.dfci.harvard.edu/pub/bio/tgi/software/seqclean)
     - [seqclean](ftp://occams.dfci.harvard.edu/pub/bio/tgi/software/seqclean/)
     - [STAR >= 2.4.0i](https://github.com/alexdobin/STAR/releases)
     - [tgicl < 2](ftp://occams.dfci.harvard.edu/pub/bio/tgi/software/tgicl/) -> yes, it is **not** [tgicl >= 2.1](https://sourceforge.net/projects/tgicl)
@@ -76,7 +77,7 @@ Go to the original install page: [http://www.sigenae.org/drap/install.html](http
     - [Trinity >= 2.4.0](https://github.com/trinityrnaseq/trinityrnaseq/releases)
 
 
-Details about how those software are used can be see in [doc/third_party_tools.html](./doc/third_party_tools.html)
+Details about how those softwares are used can be see in [doc/third_party_tools.html](./doc/third_party_tools.html)
 
 ### Configure & Test
 
@@ -85,3 +86,51 @@ see the [doc/install.html](./doc/install.html) and [doc/quick_start.html](./doc/
 ## Hacks
 
 ### Run runMeta without having used runDrap before.
+
+You must use a command similar to the following:
+
+```
+#!/bin/bash
+
+DRAP_PATH="/usr/local/genome2/drap"
+WORKING_DIR="$(pwd)"
+OUT_FOLDER="$WORKING_DIR"
+
+$DRAP_PATH/runMeta \
+ --cfg-file $WORKING_DIR/cfg/drap.cfg \
+ --drap-dirs $OUT_FOLDER/trinity_splA,$OUT_FOLDER/trinity_splB \
+ --ref $DRAP_PATH/test/data/Danio_rerio.pep.fasta \
+ --outdir $OUT_FOLDER/meta_trinity \
+ --write
+```
+
+where:
+`--drap-dirs` are the folders obtained from `runDrap`.
+Each of those folders must contains at least le following contents in order to successfully run `runMeta`:
+
+ - `.drap_conf.json` (used in the steps `06-meta_index.sh`, `07-meta_rmbt.sh` and `09-meta_postprocess.sh` of `runMeta`): a json file containing at least the following elements:
+ ```
+ {
+   "alignR1" : [
+      "/path/to/sampleA_R1.fastq.gz"
+   ],
+   "alignR2" : [
+      "/path/to/sampleA_R2.fastq.gz"
+   ],
+   "coverages" : [
+      "1",
+      "3",
+      "5",
+      "10"
+   ],
+   "paired" : 1,
+   "strand" : null
+  }
+
+ - `transcripts_fpkm_X.fa` (used in `01-meta_merge.sh`): which is the file of transcripts to be mapped.
+ The `X` in `transcripts_fpkm_X.fa` name must be the minimal value in the list associated to the "coverages" key in the file `.drap_conf.json`. The value of `X` is the *coverage cutoff* used by `express` when transcripts (from `transcripts_fpkm.fa`) are filtered.
+
+**Notes**:
+
+ - The `alignR2` key  can be ommited when the `paired` key is set to 0.
+ - If we set, for example, `"coverages" : ["2"]` and `transcripts_fpkm_2.fa`, the file `.drap_conf.json` prodcued by `runMeta` will put back `"coverages" : ["1", "3", "5", "10"]`.
