@@ -101,7 +101,6 @@ $DRAP_PATH/runMeta \
  --drap-dirs $OUT_FOLDER/trinity_splA,$OUT_FOLDER/trinity_splB \
  --ref $DRAP_PATH/test/data/Danio_rerio.pep.fasta \
  --outdir $OUT_FOLDER/meta_trinity \
- --write
 ```
 
 where:
@@ -134,4 +133,4 @@ Each of those folders must contains at least le following contents in order to s
 **Notes**:
 
  - The `alignR2` key  can be ommited when the `paired` key is set to 0.
- - If we set, for example, `"coverages" : ["2"]` and `transcripts_fpkm_2.fa`, the file `.drap_conf.json` prodcued by `runMeta` will put back `"coverages" : ["1", "3", "5", "10"]`.
+ - If we set, for example, `"coverages" : ["2"]` and `transcripts_fpkm_2.fa`, the file `.drap_conf.json` produced by `runMeta` will put back `"coverages" : ["1", "3", "5", "10"]`.
