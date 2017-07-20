@@ -1,9 +1,9 @@
 # DRAP : De novo RNA-seq Assembly Pipeline
 
-**This is a fork** of [DRAP v1.91: http://www.sigenae.org/drap](http://www.sigenae.org/drap) adapted to the cluster of the Staion Biologique de Roscoff.
+**This is a fork** of [DRAP v1.91: http://www.sigenae.org/drap](http://www.sigenae.org/drap) adapted to the cluster of the Station Biologique de Roscoff.
 
 Modifications are quick and dirty and not intensively tested.
-At the moment only `runMeta` works correctly with `sge` set in the `cfg/drap.cfg` file . Everything else must be used `local` option set (but can be submitted as a job with a qsub)
+At the moment only `runMeta` works correctly with `sge` set in the `cfg/drap.cfg` file . Everything else must use `local` option (but can be submitted as a job with a qsub).
 
 License: [GNU GPLv3](http://www.gnu.org/licenses/gpl-3.0.en.html)
 
